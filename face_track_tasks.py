@@ -2,6 +2,7 @@ import cv2
 import os
 import requests
 from dataclasses import dataclass
+import mediapipe as mp
 
 from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
@@ -37,10 +38,10 @@ class FaceTrackerTasks:
         h, w = frame_bgr.shape[:2]
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
-        mp_image = mp_tasks.vision.Image(
-            image_format=mp_tasks.vision.ImageFormat.SRGB,
-            data=frame_rgb
-        )
+        mp_image = mp.Image(
+    image_format=mp.ImageFormat.SRGB,
+    data=frame_rgb
+)
 
         detection_result = self.detector.detect(mp_image)
 
