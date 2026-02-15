@@ -1,232 +1,121 @@
-import time
-import threading
-import numpy as np
-import cv2
-import serial
-import os
-import requests
-import mediapipe as mp
-from dataclasses import dataclass
-from mediapipe.tasks import python as mp_tasks
-from mediapipe.tasks.python import vision
+#include "esp_camera.h"
+#include <ESP32Servo.h>
 
-# =========================
-# CONFIG
-# =========================
-SERIAL_PORT = "/dev/cu.SLAB_USBtoUART"   # <- CHANGE to your ESP32 port
-BAUD = 1500000                           # <- must match your ESP32 camera stream baud
-W, H = 160, 120                          # <- must match your ESP32 image size
+// ================= Camera pins (your external camera wiring) =================
+#define PWDN_GPIO_NUM     -1
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM     15
+#define SIOD_GPIO_NUM     4
+#define SIOC_GPIO_NUM     5
 
-MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
-MODEL_PATH = "blaze_face_short_range.tflite"
+#define Y9_GPIO_NUM       16
+#define Y8_GPIO_NUM       17
+#define Y7_GPIO_NUM       18
+#define Y6_GPIO_NUM       12
+#define Y5_GPIO_NUM       10
+#define Y4_GPIO_NUM       8
+#define Y3_GPIO_NUM       9
+#define Y2_GPIO_NUM       11
+#define VSYNC_GPIO_NUM    6
+#define HREF_GPIO_NUM     7
+#define PCLK_GPIO_NUM     13
 
-# =========================
-# Camera stream receiver
-# =========================
-class SerialCamReceiver:
-    """
-    Reads grayscale frames sent from ESP32.
-    Expected protocol (your code):
-      - lines containing START_IMAGE
-      - then raw bytes (coming in via readline chunks)
-      - line containing END_IMAGE
-    Writes latest frame into self.frame (H x W uint8).
-    """
-    def __init__(self, ser: serial.Serial, w: int, h: int, launch_cv2=False):
-        self.ser = ser
-        self.w = w
-        self.h = h
-        self.frame = np.full((h, w), 255, dtype=np.uint8)
-        self._buf = np.full((h, w), 255, dtype=np.uint8)
-        self.lock = threading.Lock()
-        self.running = True
-        self.launch_cv2 = launch_cv2
+// ================= Servo =================
+static const int SERVO_PIN = 2;   // signal pin for servo (GPIO2)
+Servo servo;
+int servoAngle = 90;
 
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
+// ================= Stream settings =================
+static const int BAUD = 1500000;              // must match laptop
+static const int W = 160;
+static const int H = 120;
+static const int FRAME_BYTES = W * H;
 
-        if launch_cv2:
-            threading.Thread(target=self._preview, daemon=True).start()
+// Non-blocking-ish servo command handler:
+// Reads lines like "ANG:123\n" and updates servoAngle
+void handleAngleCommand() {
+  if (!Serial.available()) return;
 
-    def _preview(self):
-        while self.running:
-            with self.lock:
-                img = self.frame.copy()
-            cv2.imshow("Serial Camera (Grayscale)", img)
-            cv2.waitKey(1)
+  String line = Serial.readStringUntil('\n');  // uses Serial timeout
+  line.trim();
 
-    def _run(self):
-        x = 0
-        y = 0
-        state = 0  # 0 idle, 1 writing
+  if (line.startsWith("ANG:")) {
+    int a = line.substring(4).toInt();
+    if (a < 0) a = 0;
+    if (a > 180) a = 180;
+    servoAngle = a;
+    servo.write(servoAngle);
+  }
+}
 
-        self.ser.reset_input_buffer()
+void setup() {
+  Serial.begin(BAUD);
+  Serial.setTimeout(2); // ms (keeps readStringUntil from blocking long)
+  delay(200);
 
-        while self.running:
-            datas = self.ser.readline()
-            if len(datas) == 0:
-                continue
+  // Servo init
+  servo.setPeriodHertz(50);
+  servo.attach(SERVO_PIN, 500, 2400);
+  servo.write(servoAngle);
 
-            # ignore your other messages
-            if b"Start!" in datas:
-                state = 0
-                x = y = 0
-                continue
+  Serial.println("Initializing camera...");
 
-            # If we are idle, wait for frame start
-            if state == 0:
-                if b"START_IMAGE" in datas:
-                    state = 1
-                    x = y = 0
-                continue
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer   = LEDC_TIMER_0;
 
-            # If writing, check end
-            if b"END_IMAGE" in datas:
-                # publish frame (IMPORTANT: write into shared array)
-                with self.lock:
-                    self.frame[:] = self._buf
-                state = 0
-                x = y = 0
-                self.ser.reset_input_buffer()
-                continue
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
 
-            # Otherwise treat datas as pixel bytes
-            for b in datas:
-                self._buf[y, x] = b
-                x += 1
-                if x >= self.w:
-                    x = 0
-                    y += 1
-                if y >= self.h:
-                    # wrap if overflow
-                    y = 0
+  config.pin_xclk  = XCLK_GPIO_NUM;
+  config.pin_pclk  = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href  = HREF_GPIO_NUM;
+  config.pin_sscb_sda = SIOD_GPIO_NUM;
+  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn  = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
 
-    def get_bgr(self):
-        with self.lock:
-            gray = self.frame.copy()
-        bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        return bgr
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_GRAYSCALE;
 
-    def stop(self):
-        self.running = False
+  config.frame_size   = FRAMESIZE_QQVGA; // 160x120
+  config.jpeg_quality = 12;
+  config.fb_count     = 2;
 
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK) {
+    Serial.printf("Camera init failed: 0x%x\n", err);
+    while (true) delay(1000);
+  }
 
-# =========================
-# Face tracker (MediaPipe Tasks)
-# =========================
-@dataclass
-class TrackResult:
-    found: bool
-    bbox: tuple | None
-    center_smooth: tuple | None
+  Serial.println("Starting!");
+}
 
-class FaceTrackerTasks:
-    def __init__(self, smooth_alpha=0.25):
-        self.alpha = float(smooth_alpha)
-        self.prev = None
+void loop() {
+  // 1) Handle incoming servo angle commands
+  handleAngleCommand();
 
-        if not os.path.exists(MODEL_PATH):
-            print("[MODEL] Downloading face model...")
-            r = requests.get(MODEL_URL, timeout=60)
-            r.raise_for_status()
-            with open(MODEL_PATH, "wb") as f:
-                f.write(r.content)
-            print("[MODEL] Saved:", MODEL_PATH)
+  // 2) Capture frame
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println("failed");
+    delay(10);
+    return;
+  }
 
-        base_options = mp_tasks.BaseOptions(model_asset_path=MODEL_PATH)
-        options = vision.FaceDetectorOptions(base_options=base_options)
-        self.detector = vision.FaceDetector.create_from_options(options)
+  // 3) Stream frame
+  Serial.println("START_IMAGE");
+  Serial.write(fb->buf, fb->len);
+  Serial.println("END_IMAGE");
 
-    def update(self, frame_bgr) -> TrackResult:
-        h, w = frame_bgr.shape[:2]
-        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+  esp_camera_fb_return(fb);
 
-        result = self.detector.detect(mp_image)
-        if not result.detections:
-            self.prev = None
-            return TrackResult(False, None, None)
-
-        det = result.detections[0]
-        bb = det.bounding_box
-        x, y, bw, bh = int(bb.origin_x), int(bb.origin_y), int(bb.width), int(bb.height)
-
-        x = max(0, min(x, w - 1))
-        y = max(0, min(y, h - 1))
-        bw = max(1, min(bw, w - x))
-        bh = max(1, min(bh, h - y))
-
-        cx, cy = x + bw // 2, y + bh // 2
-
-        if self.prev is None:
-            cxs, cys = cx, cy
-        else:
-            cxs = int(self.alpha * cx + (1 - self.alpha) * self.prev[0])
-            cys = int(self.alpha * cy + (1 - self.alpha) * self.prev[1])
-
-        self.prev = (cxs, cys)
-        return TrackResult(True, (x, y, bw, bh), (cxs, cys))
-
-def clamp(v, lo, hi):
-    return lo if v < lo else hi if v > hi else v
-
-
-# =========================
-# MAIN (integrated)
-# =========================
-def main():
-    ser = serial.Serial(SERIAL_PORT, BAUD, timeout=0.05)
-    time.sleep(2.0)
-    print("[SERIAL] Connected:", ser.port)
-
-    cam = SerialCamReceiver(ser, W, H, launch_cv2=False)
-    tracker = FaceTrackerTasks(smooth_alpha=0.25)
-
-    pan = 90.0
-    Kp = 18.0
-    max_step = 3.0
-    deadband_px = 12  # for 160px width, smaller than laptop; tune 8–20
-    last_sent = None
-
-    while True:
-        frame = cam.get_bgr()
-        h, w = frame.shape[:2]
-        cx0 = w // 2
-
-        res = tracker.update(frame)
-
-        cv2.drawMarker(frame, (cx0, h // 2), (255, 255, 255),
-                       markerType=cv2.MARKER_CROSS, markerSize=12, thickness=2)
-
-        if res.found:
-            x, y, bw, bh = res.bbox
-            cxs, cys = res.center_smooth
-            cv2.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
-            cv2.circle(frame, (cxs, cys), 4, (0, 0, 255), -1)
-
-            ex = cxs - cx0
-            if abs(ex) > deadband_px:
-                nx = clamp(ex / (w / 2), -1.0, 1.0)
-                step = clamp(Kp * nx, -max_step, max_step)
-                pan += step
-            pan = clamp(pan, 0.0, 180.0)
-
-        angle = int(round(pan))
-        if angle != last_sent:
-            # IMPORTANT: send something the ESP32 can parse without breaking your image protocol
-            ser.write(f"ANG:{angle}\n".encode("utf-8"))
-            last_sent = angle
-
-        cv2.putText(frame, f"PAN={pan:5.1f}", (5, 18),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-
-        cv2.imshow("SerialCam -> Face -> Servo", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-
-    cam.stop()
-    ser.close()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()
+  delay(50); // ~20 fps
+}
