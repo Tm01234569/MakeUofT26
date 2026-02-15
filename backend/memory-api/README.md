@@ -7,6 +7,13 @@ Backend for ESP32 memory features.
 - `POST /v1/memory/conversations`
 - `POST /v1/memory/visual-events`
 - `POST /v1/memory/recall`
+- `POST /v1/asr/transcribe` (raw PCM16 -> Gemini transcription)
+- `POST /v1/asr/stream/start` (open ASR stream session)
+- `POST /v1/asr/stream/chunk` (append PCM16 chunk)
+- `POST /v1/asr/stream/stop` (close stream + transcribe)
+- `POST /v1/asr/stream/abort` (discard stream)
+- `POST /v1/llm/chat` (Gemini text/vision)
+- `POST /v1/tts/synthesize` (ElevenLabs audio)
 - `GET /healthz`
 
 ## 1) Install
@@ -27,8 +34,14 @@ Required:
 
 Recommended for vector retrieval:
 - `GEMINI_API_KEY`
+- `GEMINI_ASR_MODEL=gemini-2.0-flash`
+- `GEMINI_LLM_MODEL=gemini-2.0-flash`
 - `GEMINI_EMBEDDING_MODEL=models/gemini-embedding-001`
 - `GEMINI_EMBEDDING_DIM=768`
+
+Required for backend TTS proxy:
+- `ELEVENLABS_API_KEY`
+- `ELEVENLABS_TTS_MODEL=eleven_flash_v2_5`
 
 ## 3) Run
 
@@ -75,7 +88,31 @@ Use these in firmware config:
 }
 ```
 
+For backend ASR proxy mode in firmware:
+
+```json
+{
+  "asr_provider": "backend",
+  "asr_api_url": "http://<your-laptop-ip>:8787",
+  "asr_api_key": "same-as-MEMORY_API_KEY"
+}
+```
+
+For full backend proxy mode (ASR + LLM + TTS) in firmware:
+
+```json
+{
+  "asr_provider": "backend",
+  "asr_api_url": "http://<your-laptop-ip>:8787",
+  "asr_api_key": "same-as-MEMORY_API_KEY",
+  "ai_provider": "backend",
+  "backend_api_url": "http://<your-laptop-ip>:8787",
+  "backend_api_key": "same-as-MEMORY_API_KEY",
+  "use_backend_tts": true
+}
+```
+
 ## Notes
 
-- This service is Atlas-ready but can run against any MongoDB connection string.
+- This service is Atlas-ready but can run even if Mongo is temporarily unavailable.
 - Firmware expects `recall` response as plain text.
