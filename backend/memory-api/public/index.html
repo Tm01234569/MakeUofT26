@@ -911,8 +911,9 @@
         });
         if (!res.ok) throw new Error('Failed to load active profile');
         var data = await res.json();
-        activeProfileId = data.profile_id || data.id || null;
-        promptTextarea.value = data.system_prompt || '';
+        var prof = data.profile || data;
+        activeProfileId = prof.id || data.profile_id || null;
+        promptTextarea.value = prof.system_prompt || '';
         renderProfiles();
       } catch (err) {
         console.error(err);
@@ -933,7 +934,8 @@
         var data = await res.json();
 
         activeProfileId = profileId;
-        promptTextarea.value = data.system_prompt || '';
+        var switched = data.profile || data;
+        promptTextarea.value = switched.system_prompt || '';
 
         renderProfiles();
 
@@ -1004,7 +1006,7 @@
         if (!res.ok) throw new Error('Preview failed');
 
         var data = await res.json();
-        var reply = data.response || data.message || data.reply || JSON.stringify(data);
+        var reply = data.text || data.response || data.message || JSON.stringify(data);
         addBubble(reply, 'assistant');
       } catch (err) {
         removeLoading();
