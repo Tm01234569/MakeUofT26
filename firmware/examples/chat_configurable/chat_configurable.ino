@@ -30,6 +30,10 @@
 #include <AIProvider.h>
 #include <OpenAIProvider.h>
 #include <GeminiProvider.h>
+#include <GeminiASRChat.h>
+#include <BackendASRChat.h>
+#include <BackendLLMProvider.h>
+#include <BackendTTS.h>
 #include <VisualContextManager.h>
 #include <RemoteMemory.h>
 #include <ElevenLabsTTS.h>
@@ -44,15 +48,16 @@
 // Hardware Pin Definitions
 // ============================================================================
 
-// I2S audio output pins (for TTS speech playback)
-#define I2S_DOUT 47  // Data output pin
-#define I2S_BCLK 48  // Bit clock pin
-#define I2S_LRC 45   // Left/Right channel clock pin
+// I2S audio output pins (ESP32 classic + MAX98357)
+#define I2S_DOUT 22  // DIN
+#define I2S_BCLK 26  // BCLK
+#define I2S_LRC 25   // LRC/WS
 
 // INMP441 microphone input pin definitions
-#define I2S_MIC_SERIAL_CLOCK 5      // SCK - Serial clock
-#define I2S_MIC_LEFT_RIGHT_CLOCK 4  // WS - Left/Right channel clock
-#define I2S_MIC_SERIAL_DATA 6       // SD - Serial data
+// NOTE: GPIO6-11 are connected to flash on ESP32 classic, do not use them.
+#define I2S_MIC_SERIAL_CLOCK 32      // SCK - Serial clock
+#define I2S_MIC_LEFT_RIGHT_CLOCK 33  // WS - Left/Right channel clock
+#define I2S_MIC_SERIAL_DATA 34       // SD - Serial data (input-only pin is OK here)
 
 // BOOT button pin
 #define BOOT_BUTTON_PIN 0
@@ -72,8 +77,10 @@ String wifi_password = "";
 String subscription = "free";
 
 // ASR configuration
+String asr_provider = "bytedance";  // bytedance|gemini|backend
 String asr_api_key = "";
 String asr_cluster = "volcengine_input_en";
+String asr_api_url = "";
 
 // OpenAI configuration
 String openai_apiKey = "";
@@ -96,6 +103,9 @@ String elevenlabs_output_format = "mp3_22050_32";
 String gemini_apiKey = "";
 String gemini_model = "gemini-2.0-flash";
 String ai_provider = "openai";
+String backend_api_url = "";
+String backend_api_key = "";
+bool use_backend_tts = true;
 
 // System prompt
 String system_prompt = "You are a helpful AI assistant.";
@@ -116,6 +126,12 @@ String memory_api_key = "";
 String device_id = "";
 String memory_mode = "local";  // local|remote|both
 bool memory_store_visual_events = true;
+
+// Interaction mode
+// true  -> one utterance per "start" command/button press
+// false -> continuous auto-restart conversation loop
+bool single_turn_mode = true;
+bool manual_record_control = true;
 
 // Web control
 bool web_control_enabled = false;
@@ -143,15 +159,19 @@ bool systemInitialized = false;
 
 Audio audio;
 ArduinoASRChat* asrChat = nullptr;
+GeminiASRChat* geminiAsrChat = nullptr;
+BackendASRChat* backendAsrChat = nullptr;
 OpenAIProvider* openaiProvider = nullptr;
 OpenAIProvider* ttsProvider = nullptr;
 GeminiProvider* geminiProvider = nullptr;
+BackendLLMProvider* backendProvider = nullptr;
 AIProvider* aiProvider = nullptr;
 ArduinoTTSChat* ttsChat = nullptr;  // WebSocket-based TTS for Pro version
 VisualContextManager* visualContextMgr = nullptr;
 WebControl* webControl = nullptr;
 RemoteMemory remoteMemory;
 ElevenLabsTTS elevenlabsTTS;
+BackendTTS backendTTS;
 Preferences preferences;
 
 // TTS completion flag for WebSocket mode
@@ -191,6 +211,105 @@ uint8_t visualStoreHistoryCount = 0;
 
 bool isRemoteMemoryMode(const String& mode) {
   return mode == "remote" || mode == "both";
+}
+
+bool isGeminiASR() {
+  return asr_provider == "gemini";
+}
+
+bool isBackendASR() {
+  return asr_provider == "backend";
+}
+
+bool asrStartRecording() {
+  if (isBackendASR()) {
+    return backendAsrChat != nullptr && backendAsrChat->startRecording();
+  }
+  if (isGeminiASR()) {
+    return geminiAsrChat != nullptr && geminiAsrChat->startRecording();
+  }
+  return asrChat != nullptr && asrChat->startRecording();
+}
+
+void asrStopRecording() {
+  if (isBackendASR()) {
+    if (backendAsrChat != nullptr) backendAsrChat->stopRecording();
+    return;
+  }
+  if (isGeminiASR()) {
+    if (geminiAsrChat != nullptr) geminiAsrChat->stopRecording();
+    return;
+  }
+  if (asrChat != nullptr) asrChat->stopRecording();
+}
+
+bool asrIsRecording() {
+  if (isBackendASR()) {
+    return backendAsrChat != nullptr && backendAsrChat->isRecording();
+  }
+  if (isGeminiASR()) {
+    return geminiAsrChat != nullptr && geminiAsrChat->isRecording();
+  }
+  return asrChat != nullptr && asrChat->isRecording();
+}
+
+void asrLoop() {
+  if (isBackendASR()) {
+    if (backendAsrChat != nullptr) backendAsrChat->loop();
+    return;
+  }
+  if (isGeminiASR()) {
+    if (geminiAsrChat != nullptr) geminiAsrChat->loop();
+    return;
+  }
+  if (asrChat != nullptr) asrChat->loop();
+}
+
+bool asrHasNewResult() {
+  if (isBackendASR()) {
+    return backendAsrChat != nullptr && backendAsrChat->hasNewResult();
+  }
+  if (isGeminiASR()) {
+    return geminiAsrChat != nullptr && geminiAsrChat->hasNewResult();
+  }
+  return asrChat != nullptr && asrChat->hasNewResult();
+}
+
+bool asrFinalizeRecording() {
+  if (isBackendASR()) {
+    return backendAsrChat != nullptr && backendAsrChat->finalizeRecording();
+  }
+  if (isGeminiASR()) {
+    asrStopRecording();
+    return false;
+  }
+  asrStopRecording();
+  return false;
+}
+
+String asrGetRecognizedText() {
+  if (isBackendASR()) {
+    if (backendAsrChat != nullptr) return backendAsrChat->getRecognizedText();
+    return "";
+  }
+  if (isGeminiASR()) {
+    if (geminiAsrChat != nullptr) return geminiAsrChat->getRecognizedText();
+    return "";
+  }
+  if (asrChat != nullptr) return asrChat->getRecognizedText();
+  return "";
+}
+
+void asrClearResult() {
+  if (isBackendASR()) {
+    if (backendAsrChat != nullptr) backendAsrChat->clearResult();
+    return;
+  }
+  if (isGeminiASR()) {
+    if (geminiAsrChat != nullptr) geminiAsrChat->clearResult();
+    return;
+  }
+  if (asrChat != nullptr) asrChat->clearResult();
 }
 
 int tokenizeUniqueWords(const String& input, String outTokens[], int maxTokens) {
@@ -320,6 +439,23 @@ void applyVisualContext(const String& ctx, const char* reasonTag) {
 }
 
 void applyRuntimeModelSwitch(const String& provider, const String& model) {
+  if (provider == "backend") {
+    if (backendProvider != nullptr) {
+      ai_provider = "backend";
+      if (model.length() > 0) {
+        gemini_model = model;
+        backendProvider->setModel(model);
+      }
+      aiProvider = backendProvider;
+      if (visualContextMgr != nullptr) visualContextMgr->setProvider(aiProvider);
+      saveConfigToFlash();
+      Serial.printf("[Runtime] Provider=backend Model=%s\n", aiProvider->getModel().c_str());
+    } else {
+      Serial.println("[Runtime] Backend provider not initialized");
+    }
+    return;
+  }
+
   if (provider == "gemini") {
     if (geminiProvider != nullptr) {
       ai_provider = "gemini";
@@ -377,11 +513,11 @@ void processRuntimeCommand() {
   if (cmd.startsWith("provider:")) {
     String provider = cmd.substring(9);
     provider.trim();
-    if (provider != "openai" && provider != "gemini") {
-      Serial.println("[Runtime] provider must be openai|gemini");
+    if (provider != "openai" && provider != "gemini" && provider != "backend") {
+      Serial.println("[Runtime] provider must be openai|gemini|backend");
       return;
     }
-    String model = (provider == "gemini") ? gemini_model : openai_model;
+    String model = (provider == "openai") ? openai_model : gemini_model;
     applyRuntimeModelSwitch(provider, model);
     return;
   }
@@ -435,13 +571,17 @@ void processRuntimeCommand() {
   }
 
   if (cmd == "status") {
-    Serial.printf("[Runtime] provider=%s model=%s tts_engine=%s tts_base=%s tts_model=%s\n",
+    Serial.printf("[Runtime] asr_provider=%s asr_api_url=%s interaction=%s manual_record=%s provider=%s model=%s tts_engine=%s tts_base=%s tts_model=%s backend_api_url=%s\n",
+                  asr_provider.c_str(),
+                  asr_api_url.c_str(),
+                  single_turn_mode ? "single_turn" : "continuous",
+                  manual_record_control ? "true" : "false",
                   ai_provider.c_str(),
                   aiProvider != nullptr ? aiProvider->getModel().c_str() : "",
-                  use_elevenlabs_tts ? "elevenlabs" : "openai_compatible",
-                  openai_apiBaseUrl.c_str(),
+                  use_backend_tts ? "backend" : (use_elevenlabs_tts ? "elevenlabs" : "openai_compatible"),
                   tts_apiBaseUrl.c_str(),
-                  tts_openai_model.c_str());
+                  tts_openai_model.c_str(),
+                  backend_api_url.c_str());
     return;
   }
 
@@ -450,6 +590,9 @@ void processRuntimeCommand() {
                   (int)currentState,
                   systemInitialized ? "true" : "false",
                   continuousMode ? "true" : "false");
+    Serial.printf("[Diag] asr_provider=%s\n", asr_provider.c_str());
+    Serial.printf("[Diag] single_turn_mode=%s\n", single_turn_mode ? "true" : "false");
+    Serial.printf("[Diag] manual_record_control=%s\n", manual_record_control ? "true" : "false");
     Serial.printf("[Diag] wifi=%s rssi=%d ip=%s\n",
                   WiFi.status() == WL_CONNECTED ? "connected" : "disconnected",
                   WiFi.RSSI(),
@@ -461,10 +604,11 @@ void processRuntimeCommand() {
     Serial.printf("[Diag] audio_running=%s tts_ws_playing=%s\n",
                   audio.isRunning() ? "true" : "false",
                   (subscription == "pro" && ttsChat != nullptr && ttsChat->isPlaying()) ? "true" : "false");
-    Serial.printf("[Diag] tts_engine=%s eleven_voice=%s eleven_model=%s\n",
-                  use_elevenlabs_tts ? "elevenlabs" : "openai_compatible",
+    Serial.printf("[Diag] tts_engine=%s eleven_voice=%s eleven_model=%s backend_api_url=%s\n",
+                  use_backend_tts ? "backend" : (use_elevenlabs_tts ? "elevenlabs" : "openai_compatible"),
                   elevenlabs_voice_id.c_str(),
-                  elevenlabs_model_id.c_str());
+                  elevenlabs_model_id.c_str(),
+                  backend_api_url.c_str());
     Serial.printf("[Diag] vision refresh=%lums on_start=%s on_turn=%s dedupe=%d%% min_store=%lums max_hour=%d\n",
                   vision_refresh_interval,
                   vision_on_conversation_start ? "true" : "false",
@@ -491,12 +635,44 @@ void processRuntimeCommand() {
       Serial.printf("[Runtime] testtts pro=%s\n", ok ? "ok" : "failed");
     } else {
       bool ok = false;
-      if (use_elevenlabs_tts) {
+      if (use_backend_tts && backendTTS.isConfigured()) {
+        ok = backendTTS.speak(text);
+      } else if (use_elevenlabs_tts) {
         ok = elevenlabsTTS.speak(text);
       } else if (ttsProvider != nullptr) {
         ok = ttsProvider->client().textToSpeech(text);
       }
       Serial.printf("[Runtime] testtts free=%s\n", ok ? "ok" : "failed");
+    }
+    return;
+  }
+
+  if (cmd == "start") {
+    if (!systemInitialized) {
+      Serial.println("[Runtime] System not initialized yet");
+      return;
+    }
+    if (!continuousMode) {
+      startContinuousMode();
+    } else {
+      Serial.println("[Runtime] Already in continuous mode");
+    }
+    return;
+  }
+
+  if (cmd == "stop") {
+    if (manual_record_control &&
+        continuousMode &&
+        currentState == STATE_LISTENING &&
+        asrIsRecording()) {
+      bool ok = asrFinalizeRecording();
+      Serial.printf("[Runtime] Manual stop finalize=%s\n", ok ? "ok" : "failed");
+      return;
+    }
+    if (continuousMode) {
+      stopContinuousMode();
+    } else {
+      Serial.println("[Runtime] Already stopped");
     }
     return;
   }
@@ -531,8 +707,10 @@ bool saveConfigToFlash() {
   preferences.putString("wifi_ssid", wifi_ssid);
   preferences.putString("wifi_pass", wifi_password);
   preferences.putString("subscription", subscription);
+  preferences.putString("asr_provider", asr_provider);
   preferences.putString("asr_key", asr_api_key);
   preferences.putString("asr_cluster", asr_cluster);
+  preferences.putString("asr_api_url", asr_api_url);
   preferences.putString("openai_key", openai_apiKey);
   preferences.putString("openai_url", openai_apiBaseUrl);
   preferences.putString("openai_model", openai_model);
@@ -547,6 +725,9 @@ bool saveConfigToFlash() {
   preferences.putString("elevenlabs_model_id", elevenlabs_model_id);
   preferences.putString("elevenlabs_output_format", elevenlabs_output_format);
   preferences.putString("ai_provider", ai_provider);
+  preferences.putString("backend_api_url", backend_api_url);
+  preferences.putString("backend_api_key", backend_api_key);
+  preferences.putBool("use_backend_tts", use_backend_tts);
   preferences.putString("gemini_key", gemini_apiKey);
   preferences.putString("gemini_model", gemini_model);
   preferences.putString("sys_prompt", system_prompt);
@@ -563,6 +744,8 @@ bool saveConfigToFlash() {
   preferences.putString("device_id", device_id);
   preferences.putString("memory_mode", memory_mode);
   preferences.putBool("mem_visual", memory_store_visual_events);
+  preferences.putBool("single_turn_mode", single_turn_mode);
+  preferences.putBool("manual_record_control", manual_record_control);
   preferences.putBool("web_enabled", web_control_enabled);
   preferences.putInt("web_port", web_port);
   preferences.putInt("web_ws_port", web_ws_port);
@@ -601,8 +784,10 @@ bool loadConfigFromFlash() {
   wifi_ssid = preferences.getString("wifi_ssid", "");
   wifi_password = preferences.getString("wifi_pass", "");
   subscription = preferences.getString("subscription", "free");
+  asr_provider = preferences.getString("asr_provider", "bytedance");
   asr_api_key = preferences.getString("asr_key", "");
   asr_cluster = preferences.getString("asr_cluster", "volcengine_input_en");
+  asr_api_url = preferences.getString("asr_api_url", "");
   openai_apiKey = preferences.getString("openai_key", "");
   openai_apiBaseUrl = preferences.getString("openai_url", "");
   openai_model = preferences.getString("openai_model", "gpt-4.1-nano");
@@ -617,6 +802,9 @@ bool loadConfigFromFlash() {
   elevenlabs_model_id = preferences.getString("elevenlabs_model_id", "eleven_flash_v2_5");
   elevenlabs_output_format = preferences.getString("elevenlabs_output_format", "mp3_22050_32");
   ai_provider = preferences.getString("ai_provider", "openai");
+  backend_api_url = preferences.getString("backend_api_url", "");
+  backend_api_key = preferences.getString("backend_api_key", "");
+  use_backend_tts = preferences.getBool("use_backend_tts", true);
   gemini_apiKey = preferences.getString("gemini_key", "");
   gemini_model = preferences.getString("gemini_model", "gemini-2.0-flash");
   system_prompt = preferences.getString("sys_prompt", "You are a helpful AI assistant.");
@@ -633,6 +821,8 @@ bool loadConfigFromFlash() {
   device_id = preferences.getString("device_id", "");
   memory_mode = preferences.getString("memory_mode", "local");
   memory_store_visual_events = preferences.getBool("mem_visual", true);
+  single_turn_mode = preferences.getBool("single_turn_mode", true);
+  manual_record_control = preferences.getBool("manual_record_control", true);
   web_control_enabled = preferences.getBool("web_enabled", false);
   web_port = preferences.getInt("web_port", 80);
   web_ws_port = preferences.getInt("web_ws_port", 81);
@@ -765,8 +955,14 @@ bool receiveConfig() {
           if (doc.containsKey("asr_api_key")) {
             asr_api_key = doc["asr_api_key"].as<String>();
           }
+          if (doc.containsKey("asr_provider")) {
+            asr_provider = doc["asr_provider"].as<String>();
+          }
           if (doc.containsKey("asr_cluster")) {
             asr_cluster = doc["asr_cluster"].as<String>();
+          }
+          if (doc.containsKey("asr_api_url")) {
+            asr_api_url = doc["asr_api_url"].as<String>();
           }
           if (doc.containsKey("openai_apiKey")) {
             openai_apiKey = doc["openai_apiKey"].as<String>();
@@ -809,6 +1005,15 @@ bool receiveConfig() {
           }
           if (doc.containsKey("ai_provider")) {
             ai_provider = doc["ai_provider"].as<String>();
+          }
+          if (doc.containsKey("backend_api_url")) {
+            backend_api_url = doc["backend_api_url"].as<String>();
+          }
+          if (doc.containsKey("backend_api_key")) {
+            backend_api_key = doc["backend_api_key"].as<String>();
+          }
+          if (doc.containsKey("use_backend_tts")) {
+            use_backend_tts = doc["use_backend_tts"].as<bool>();
           }
           if (doc.containsKey("gemini_apiKey")) {
             gemini_apiKey = doc["gemini_apiKey"].as<String>();
@@ -858,6 +1063,12 @@ bool receiveConfig() {
           if (doc.containsKey("memory_store_visual_events")) {
             memory_store_visual_events = doc["memory_store_visual_events"].as<bool>();
           }
+          if (doc.containsKey("single_turn_mode")) {
+            single_turn_mode = doc["single_turn_mode"].as<bool>();
+          }
+          if (doc.containsKey("manual_record_control")) {
+            manual_record_control = doc["manual_record_control"].as<bool>();
+          }
           if (doc.containsKey("web_control_enabled")) {
             web_control_enabled = doc["web_control_enabled"].as<bool>();
           }
@@ -900,13 +1111,34 @@ bool receiveConfig() {
           }
           
           // Validate required configuration
-          bool needOpenAI = (ai_provider != "gemini");
+          if (asr_provider != "bytedance" && asr_provider != "gemini" && asr_provider != "backend") {
+            Serial.println("Error: asr_provider must be bytedance|gemini|backend");
+            return false;
+          }
+          if (ai_provider != "openai" && ai_provider != "gemini" && ai_provider != "backend") {
+            Serial.println("Error: ai_provider must be openai|gemini|backend");
+            return false;
+          }
+
+          bool useGeminiASR = (asr_provider == "gemini");
+          bool useBackendASR = (asr_provider == "backend");
+          bool needOpenAI = (ai_provider == "openai");
+
+          if (backend_api_url.length() == 0) {
+            if (memory_api_url.length() > 0) backend_api_url = memory_api_url;
+            else if (asr_api_url.length() > 0) backend_api_url = asr_api_url;
+          }
+          if (backend_api_key.length() == 0) {
+            if (memory_api_key.length() > 0) backend_api_key = memory_api_key;
+            else if (asr_api_key.length() > 0) backend_api_key = asr_api_key;
+          }
+
           if (wifi_ssid.length() == 0 || wifi_password.length() == 0 ||
-              asr_api_key.length() == 0 || (needOpenAI && openai_apiKey.length() == 0)) {
+              (!useGeminiASR && !useBackendASR && asr_api_key.length() == 0) || (needOpenAI && openai_apiKey.length() == 0)) {
             Serial.println("Error: Missing required config");
             if (wifi_ssid.length() == 0) Serial.println("  - wifi_ssid is empty");
             if (wifi_password.length() == 0) Serial.println("  - wifi_password is empty");
-            if (asr_api_key.length() == 0) Serial.println("  - asr_api_key is empty");
+            if (!useGeminiASR && !useBackendASR && asr_api_key.length() == 0) Serial.println("  - asr_api_key is empty");
             if (needOpenAI && openai_apiKey.length() == 0) Serial.println("  - openai_apiKey is empty");
             return false;
           }
@@ -924,6 +1156,35 @@ bool receiveConfig() {
           if (ai_provider == "gemini" && gemini_apiKey.length() == 0) {
             Serial.println("Error: Gemini provider selected but gemini_apiKey missing");
             return false;
+          }
+
+          if (ai_provider == "backend") {
+            if (backend_api_url.length() == 0) {
+              Serial.println("Error: Backend provider selected but backend_api_url missing");
+              return false;
+            }
+            if (backend_api_key.length() == 0) {
+              Serial.println("Error: Backend provider selected but backend_api_key missing");
+              return false;
+            }
+          }
+
+          if (useGeminiASR && gemini_apiKey.length() == 0) {
+            Serial.println("Error: Gemini ASR selected but gemini_apiKey missing");
+            return false;
+          }
+
+          if (useBackendASR) {
+            if (asr_api_url.length() == 0 && memory_api_url.length() > 0) {
+              asr_api_url = memory_api_url;
+            }
+            if (asr_api_key.length() == 0 && memory_api_key.length() > 0) {
+              asr_api_key = memory_api_key;
+            }
+            if (asr_api_url.length() == 0) {
+              Serial.println("Error: Backend ASR selected but asr_api_url missing");
+              return false;
+            }
           }
           
           if (subscription == "pro" && (minimax_apiKey.length() == 0 || minimax_groupId.length() == 0)) {
@@ -982,29 +1243,67 @@ bool initializeSystem() {
   Serial.println(" bytes");
 
   // ========== ASR Initialization ==========
-  asrChat = new ArduinoASRChat(asr_api_key.c_str(), asr_cluster.c_str());
-  
-  if (!asrChat->initINMP441Microphone(I2S_MIC_SERIAL_CLOCK, I2S_MIC_LEFT_RIGHT_CLOCK, I2S_MIC_SERIAL_DATA)) {
-    Serial.println("Microphone init failed!");
-    return false;
-  }
-  
-  asrChat->setAudioParams(SAMPLE_RATE, 16, 1);
-  asrChat->setSilenceDuration(1000);
-  asrChat->setMaxRecordingSeconds(50);
-  
-  asrChat->setTimeoutNoSpeechCallback([]() {
-    if (continuousMode) {
-      stopContinuousMode();
+  if (isBackendASR()) {
+    if (asr_api_url.length() == 0 && memory_api_url.length() > 0) {
+      asr_api_url = memory_api_url;
     }
-  });
-  
-  if (!asrChat->connectWebSocket()) {
-    Serial.println("ASR service connection failed!");
-    return false;
+    if (asr_api_key.length() == 0 && memory_api_key.length() > 0) {
+      asr_api_key = memory_api_key;
+    }
+    backendAsrChat = new BackendASRChat(asr_api_url.c_str(), asr_api_key.c_str());
+    if (!backendAsrChat->initINMP441Microphone(I2S_MIC_SERIAL_CLOCK, I2S_MIC_LEFT_RIGHT_CLOCK, I2S_MIC_SERIAL_DATA)) {
+      Serial.println("Microphone init failed!");
+      return false;
+    }
+    backendAsrChat->setAudioParams(SAMPLE_RATE, 16, 1);
+    backendAsrChat->setSilenceDuration(1400);
+    backendAsrChat->setMaxRecordingSeconds(6);
+    backendAsrChat->setManualStopOnly(manual_record_control);
+    backendAsrChat->setTimeoutNoSpeechCallback([]() {
+      if (continuousMode) {
+        stopContinuousMode();
+      }
+    });
+    Serial.printf("ASR initialized: Backend (%s)\n", asr_api_url.c_str());
+  } else if (isGeminiASR()) {
+    geminiAsrChat = new GeminiASRChat(gemini_apiKey.c_str(), gemini_model.c_str());
+    if (!geminiAsrChat->initINMP441Microphone(I2S_MIC_SERIAL_CLOCK, I2S_MIC_LEFT_RIGHT_CLOCK, I2S_MIC_SERIAL_DATA)) {
+      Serial.println("Microphone init failed!");
+      return false;
+    }
+    geminiAsrChat->setAudioParams(SAMPLE_RATE, 16, 1);
+    geminiAsrChat->setSilenceDuration(900);
+    geminiAsrChat->setMaxRecordingSeconds(6);
+    geminiAsrChat->setTimeoutNoSpeechCallback([]() {
+      if (continuousMode) {
+        stopContinuousMode();
+      }
+    });
+    Serial.printf("ASR initialized: Gemini (%s)\n", gemini_model.c_str());
+  } else {
+    asrChat = new ArduinoASRChat(asr_api_key.c_str(), asr_cluster.c_str());
+
+    if (!asrChat->initINMP441Microphone(I2S_MIC_SERIAL_CLOCK, I2S_MIC_LEFT_RIGHT_CLOCK, I2S_MIC_SERIAL_DATA)) {
+      Serial.println("Microphone init failed!");
+      return false;
+    }
+
+    asrChat->setAudioParams(SAMPLE_RATE, 16, 1);
+    asrChat->setSilenceDuration(1000);
+    asrChat->setMaxRecordingSeconds(50);
+
+    asrChat->setTimeoutNoSpeechCallback([]() {
+      if (continuousMode) {
+        stopContinuousMode();
+      }
+    });
+
+    if (!asrChat->connectWebSocket()) {
+      Serial.println("ASR service connection failed!");
+      return false;
+    }
+    Serial.printf("ASR initialized: ByteDance (%s)\n", asr_cluster.c_str());
   }
-  
-  Serial.println("ASR initialized");
   
   // ========== LLM Provider Initialization ==========
   if (openai_apiKey.length() > 0) {
@@ -1026,7 +1325,29 @@ bool initializeSystem() {
     ttsProvider->client().setTTSConfig(tts_openai_model.c_str(), tts_openai_voice.c_str(), tts_openai_speed.c_str());
   }
 
-  if (ai_provider == "gemini") {
+  if (backend_api_url.length() == 0) {
+    if (memory_api_url.length() > 0) backend_api_url = memory_api_url;
+    else if (asr_api_url.length() > 0) backend_api_url = asr_api_url;
+  }
+  if (backend_api_key.length() == 0) {
+    if (memory_api_key.length() > 0) backend_api_key = memory_api_key;
+    else if (asr_api_key.length() > 0) backend_api_key = asr_api_key;
+  }
+  if (backend_api_url.length() > 0 && backend_api_key.length() > 0) {
+    backendProvider = new BackendLLMProvider(backend_api_url.c_str(), backend_api_key.c_str());
+    backendProvider->setModel(gemini_model);
+    backendProvider->setSystemPrompt(system_prompt);
+    backendProvider->enableMemory(true);
+  }
+
+  if (ai_provider == "backend") {
+    if (backendProvider == nullptr) {
+      Serial.println("Backend provider selected but backend_api_url/backend_api_key missing");
+      return false;
+    }
+    aiProvider = backendProvider;
+    Serial.printf("LLM Provider: Backend (%s)\n", backendProvider->getModel().c_str());
+  } else if (ai_provider == "gemini") {
     geminiProvider = new GeminiProvider(gemini_apiKey.c_str());
     geminiProvider->setModel(gemini_model);
     geminiProvider->setSystemPrompt(system_prompt);
@@ -1085,7 +1406,17 @@ bool initializeSystem() {
     // Free version: Use ElevenLabs by default, fallback to OpenAI-compatible TTS.
     audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
     audio.setVolume(20);
-    if (use_elevenlabs_tts) {
+    backendTTS.setConfig(
+      backend_api_url.c_str(),
+      backend_api_key.c_str(),
+      elevenlabs_voice_id.c_str(),
+      elevenlabs_model_id.c_str(),
+      elevenlabs_output_format.c_str()
+    );
+
+    if (use_backend_tts && backendTTS.isConfigured()) {
+      Serial.printf("TTS Mode: Backend proxy (%s)\n", backend_api_url.c_str());
+    } else if (use_elevenlabs_tts) {
       elevenlabsTTS.setConfig(
         elevenlabs_api_key.c_str(),
         elevenlabs_voice_id.c_str(),
@@ -1138,6 +1469,8 @@ bool initializeSystem() {
       []() -> String {
         DynamicJsonDocument doc(1024);
         doc["ai_provider"] = ai_provider;
+        doc["backend_api_url"] = backend_api_url;
+        doc["use_backend_tts"] = use_backend_tts;
         doc["openai_model"] = openai_model;
         doc["tts_apiBaseUrl"] = tts_apiBaseUrl;
         doc["tts_openai_model"] = tts_openai_model;
@@ -1171,6 +1504,8 @@ bool initializeSystem() {
         if (doc.containsKey("vision_max_events_per_hour")) vision_max_events_per_hour = doc["vision_max_events_per_hour"].as<int>();
         if (doc.containsKey("memory_mode")) memory_mode = doc["memory_mode"].as<String>();
         if (doc.containsKey("ai_provider")) ai_provider = doc["ai_provider"].as<String>();
+        if (doc.containsKey("backend_api_url")) backend_api_url = doc["backend_api_url"].as<String>();
+        if (doc.containsKey("use_backend_tts")) use_backend_tts = doc["use_backend_tts"].as<bool>();
         if (doc.containsKey("openai_model")) openai_model = doc["openai_model"].as<String>();
         if (doc.containsKey("tts_apiBaseUrl")) tts_apiBaseUrl = doc["tts_apiBaseUrl"].as<String>();
         if (doc.containsKey("tts_openai_model")) tts_openai_model = doc["tts_openai_model"].as<String>();
@@ -1201,7 +1536,15 @@ bool initializeSystem() {
       return true;
     });
     webControl->setModelHandler([](const String& provider, const String& model) -> bool {
-      if (provider == "gemini") {
+      if (provider == "backend") {
+        if (backendProvider == nullptr) return false;
+        ai_provider = "backend";
+        aiProvider = backendProvider;
+        if (model.length() > 0) {
+          gemini_model = model;
+          backendProvider->setModel(model);
+        }
+      } else if (provider == "gemini") {
         if (geminiProvider == nullptr) return false;
         ai_provider = "gemini";
         aiProvider = geminiProvider;
@@ -1276,11 +1619,20 @@ void startContinuousMode() {
   currentState = STATE_LISTENING;
   
   Serial.println("\n========================================");
-  Serial.println("  Continuous Conversation Mode Started");
-  Serial.println("  Press BOOT again to stop");
+  if (single_turn_mode) {
+    Serial.println("  Single-Turn Mode Started");
+    if (manual_record_control) {
+      Serial.println("  Type 'stop' to finalize this utterance");
+    } else {
+      Serial.println("  One utterance will be processed");
+    }
+  } else {
+    Serial.println("  Continuous Conversation Mode Started");
+    Serial.println("  Press BOOT again to stop");
+  }
   Serial.println("========================================");
   
-  if (asrChat->startRecording()) {
+  if (asrStartRecording()) {
     Serial.println("\n[ASR] Listening... Please speak");
   } else {
     Serial.println("\n[Error] ASR startup failed");
@@ -1301,8 +1653,8 @@ void stopContinuousMode() {
   Serial.println("  Continuous Conversation Mode Stopped");
   Serial.println("========================================");
   
-  if (asrChat->isRecording()) {
-    asrChat->stopRecording();
+  if (asrIsRecording()) {
+    asrStopRecording();
   }
   
   currentState = STATE_IDLE;
@@ -1320,9 +1672,9 @@ void handleASRResult() {
     return;
   }
 
-  String transcribedText = asrChat->getRecognizedText();
+  String transcribedText = asrGetRecognizedText();
   String userInputRaw = transcribedText;
-  asrChat->clearResult();
+  asrClearResult();
   
   if (transcribedText.length() > 0) {
     // ========== Display Recognition Result ==========
@@ -1371,8 +1723,11 @@ void handleASRResult() {
         ttsCompleted = false;  // Reset completion flag
         success = ttsChat->speak(response.c_str());
       } else {
-        // Free: Use ElevenLabs by default, fallback to OpenAI-compatible TTS.
-        if (use_elevenlabs_tts) {
+        // Free: Prefer backend proxy for stability, fallback to direct providers.
+        if (use_backend_tts && backendTTS.isConfigured()) {
+          Serial.println("\n[Backend TTS] Converting to speech...");
+          success = backendTTS.speak(response);
+        } else if (use_elevenlabs_tts) {
           Serial.println("\n[ElevenLabs TTS] Converting to speech...");
           success = elevenlabsTTS.speak(response);
         } else {
@@ -1389,15 +1744,17 @@ void handleASRResult() {
         ttsCheckTime = millis();
       } else {
         Serial.println("[Error] TTS playback failed");
-        
-        if (continuousMode) {
+
+        if (continuousMode && !single_turn_mode) {
           delay(500);
           currentState = STATE_LISTENING;
-          if (asrChat->startRecording()) {
+          if (asrStartRecording()) {
             Serial.println("\n[ASR] Listening... Please speak");
           } else {
             stopContinuousMode();
           }
+        } else if (continuousMode && single_turn_mode) {
+          stopContinuousMode();
         } else {
           currentState = STATE_IDLE;
         }
@@ -1408,30 +1765,34 @@ void handleASRResult() {
       }
     } else {
       Serial.println("[Error] Failed to get LLM response");
-      
-      if (continuousMode) {
+
+      if (continuousMode && !single_turn_mode) {
         delay(500);
         currentState = STATE_LISTENING;
-        if (asrChat->startRecording()) {
+        if (asrStartRecording()) {
           Serial.println("\n[ASR] Listening... Please speak");
         } else {
           stopContinuousMode();
         }
+      } else if (continuousMode && single_turn_mode) {
+        stopContinuousMode();
       } else {
         currentState = STATE_IDLE;
       }
     }
   } else {
     Serial.println("[Warning] No text recognized");
-    
-    if (continuousMode) {
+
+    if (continuousMode && !single_turn_mode) {
       delay(500);
       currentState = STATE_LISTENING;
-      if (asrChat->startRecording()) {
+      if (asrStartRecording()) {
         Serial.println("\n[ASR] Listening... Please speak");
       } else {
         stopContinuousMode();
       }
+    } else if (continuousMode && single_turn_mode) {
+      stopContinuousMode();
     } else {
       currentState = STATE_IDLE;
     }
@@ -1467,9 +1828,11 @@ void setup() {
   } else {
     Serial.println("[Startup] No config in Flash, waiting for serial config...");
     Serial.println("\nFree version config example:");
-    Serial.println("{\"wifi_ssid\":\"YourWiFi\",\"wifi_password\":\"YourPassword\",\"subscription\":\"free\",\"asr_api_key\":\"your-key\",\"asr_cluster\":\"volcengine_input_en\",\"ai_provider\":\"gemini\",\"gemini_apiKey\":\"your-gemini-key\",\"gemini_model\":\"gemini-2.0-flash\",\"use_elevenlabs_tts\":true,\"elevenlabs_api_key\":\"your-elevenlabs-key\",\"elevenlabs_voice_id\":\"EST9Ui6982FZPSi7gCHi\",\"elevenlabs_model_id\":\"eleven_flash_v2_5\",\"system_prompt\":\"You are a helpful assistant.\",\"vision_enabled\":false,\"memory_mode\":\"local\"}");
+    Serial.println("{\"wifi_ssid\":\"YourWiFi\",\"wifi_password\":\"YourPassword\",\"subscription\":\"free\",\"asr_provider\":\"backend\",\"asr_api_url\":\"http://YOUR_LAPTOP_IP:8787\",\"asr_api_key\":\"same-as-memory-api-key\",\"single_turn_mode\":true,\"manual_record_control\":true,\"ai_provider\":\"backend\",\"backend_api_url\":\"http://YOUR_LAPTOP_IP:8787\",\"backend_api_key\":\"same-as-memory-api-key\",\"gemini_model\":\"gemini-2.0-flash\",\"openai_apiKey\":\"not-used\",\"use_backend_tts\":true,\"elevenlabs_voice_id\":\"EST9Ui6982FZPSi7gCHi\",\"elevenlabs_model_id\":\"eleven_flash_v2_5\",\"system_prompt\":\"You are a helpful assistant.\",\"vision_enabled\":false,\"memory_mode\":\"local\"}");
+    Serial.println("\nBackend ASR proxy example:");
+    Serial.println("{\"wifi_ssid\":\"YourWiFi\",\"wifi_password\":\"YourPassword\",\"subscription\":\"free\",\"asr_provider\":\"backend\",\"asr_api_url\":\"http://YOUR_LAPTOP_IP:8787\",\"asr_api_key\":\"same-as-memory-api-key\",\"ai_provider\":\"backend\",\"backend_api_url\":\"http://YOUR_LAPTOP_IP:8787\",\"backend_api_key\":\"same-as-memory-api-key\",\"gemini_model\":\"gemini-2.0-flash\",\"openai_apiKey\":\"not-used\",\"use_backend_tts\":true,\"elevenlabs_voice_id\":\"EST9Ui6982FZPSi7gCHi\",\"elevenlabs_model_id\":\"eleven_flash_v2_5\",\"system_prompt\":\"You are a helpful assistant.\",\"vision_enabled\":false,\"memory_mode\":\"local\"}");
     Serial.println("\nPro version config example:");
-    Serial.println("{\"wifi_ssid\":\"YourWiFi\",\"wifi_password\":\"YourPassword\",\"subscription\":\"pro\",\"asr_api_key\":\"your-key\",\"asr_cluster\":\"volcengine_input_en\",\"ai_provider\":\"gemini\",\"gemini_apiKey\":\"your-gemini-key\",\"gemini_model\":\"gemini-2.0-flash\",\"openai_apiKey\":\"your-openai-key\",\"openai_apiBaseUrl\":\"https://api.openai.com\",\"system_prompt\":\"You are a helpful assistant.\",\"minimax_apiKey\":\"your-key\",\"minimax_groupId\":\"your-id\",\"tts_voice_id\":\"female-tianmei\",\"memory_api_url\":\"https://your-memory-api.example.com\",\"memory_api_key\":\"api-key\",\"memory_mode\":\"both\",\"web_control_enabled\":true}");
+    Serial.println("{\"wifi_ssid\":\"YourWiFi\",\"wifi_password\":\"YourPassword\",\"subscription\":\"pro\",\"asr_provider\":\"gemini\",\"single_turn_mode\":true,\"manual_record_control\":true,\"ai_provider\":\"gemini\",\"gemini_apiKey\":\"your-gemini-key\",\"gemini_model\":\"gemini-2.0-flash\",\"openai_apiKey\":\"your-openai-key\",\"openai_apiBaseUrl\":\"https://api.openai.com\",\"system_prompt\":\"You are a helpful assistant.\",\"minimax_apiKey\":\"your-key\",\"minimax_groupId\":\"your-id\",\"tts_voice_id\":\"female-tianmei\",\"memory_api_url\":\"https://your-memory-api.example.com\",\"memory_api_key\":\"api-key\",\"memory_mode\":\"both\",\"web_control_enabled\":true}");
   }
   
   Serial.println("\nPress BOOT button to start system...\n");
@@ -1500,10 +1863,8 @@ void loop() {
         
         // Init successful, save config to Flash
         saveConfigToFlash();
-        
-        // Start conversation mode directly
-        delay(1000);
-        startContinuousMode();
+        currentState = STATE_IDLE;
+        Serial.println("\n[Startup] Ready. Press BOOT to start conversation, or type 'start' in Serial.");
       } else {
         Serial.println("\n[Error] System init failed, check config");
         Serial.println("Config not saved to Flash. You can fix wiring/network and press BOOT to retry.");
@@ -1531,9 +1892,7 @@ void loop() {
   }
 
   // ========== Process ASR Loop ==========
-  if (asrChat != nullptr) {
-    asrChat->loop();
-  }
+  asrLoop();
 
   if (webControl != nullptr) {
     webControl->loop();
@@ -1567,7 +1926,7 @@ void loop() {
       break;
       
     case STATE_LISTENING:
-      if (asrChat->hasNewResult()) {
+      if (asrHasNewResult()) {
         handleASRResult();
       }
       break;
@@ -1595,16 +1954,18 @@ void loop() {
         if (playbackComplete) {
           Serial.println("[TTS] Playback completed");
 
-          if (continuousMode) {
+          if (continuousMode && !single_turn_mode) {
             delay(500);
             currentState = STATE_LISTENING;
 
-            if (asrChat->startRecording()) {
+            if (asrStartRecording()) {
               Serial.println("\n[ASR] Listening... Please speak");
             } else {
               Serial.println("[Error] ASR restart failed");
               stopContinuousMode();
             }
+          } else if (continuousMode && single_turn_mode) {
+            stopContinuousMode();
           } else {
             currentState = STATE_IDLE;
           }
@@ -1619,7 +1980,7 @@ void loop() {
 
             if (continuousMode) {
               currentState = STATE_LISTENING;
-              if (asrChat->startRecording()) {
+              if (asrStartRecording()) {
                 Serial.println("\n[ASR] Listening... Please speak");
               } else {
                 stopContinuousMode();
