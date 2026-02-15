@@ -6,9 +6,10 @@ import mediapipe as mp
 from dataclasses import dataclass
 from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
+import math
 
 # ===== CONFIG =====
-SERIAL_PORT = "COM5"   # change
+SERIAL_PORT = "COM8"   # change
 BAUD = 1500000
 
 W, H = 160, 120
@@ -18,12 +19,12 @@ MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze
 MODEL_PATH = "blaze_face_short_range.tflite"
 
 # ===== Smooth + speed knobs =====
-SMOOTH_ALPHA = 0.12       # smaller = smoother (slower response)
-Kp_x = 18.0               # lower = less twitchy
-Kp_y = 18.0
-MAX_STEP = 3.0            # degrees per update (like your original)
-DEADBAND_PX = 8           # ignore tiny errors
-SEND_EVERY_MS = 60        # only send servo command every 60ms (~16 Hz)
+SMOOTH_ALPHA = 0.5       # smaller = smoother (slower response)
+Kp_x = 3.0               # lower = less twitchy
+Kp_y = 3.0
+MAX_STEP = 3            # degrees per update (like your original)
+DEADBAND_PX = 1           # ignore tiny errors
+SEND_EVERY_MS = 5        # only send servo command every 60ms (~16 Hz)
 
 @dataclass
 class TrackResult:
@@ -85,12 +86,13 @@ def read_frame_exact(ser):
     start_deadline = time.time() + 2.0
     while True:
         line = ser.readline()
+        print(line)
         if b"START_IMAGE" in line:
             break
         if time.time() > start_deadline:
             ser.reset_input_buffer()
             return None
-
+    print(ser)
     buf = ser.read(FRAME_BYTES)
     if len(buf) != FRAME_BYTES:
         ser.reset_input_buffer()
@@ -133,7 +135,8 @@ def main():
         gray = read_frame_exact(ser)
         if gray is None:
             continue
-
+        ser.reset_input_buffer()
+        print("new frame!")
         frame = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
         h, w = frame.shape[:2]
         cx0, cy0 = w // 2, h // 2
@@ -154,7 +157,7 @@ def main():
             ey = cys - cy0
 
             pan_step  = step_from_err(ex, w/2, Kp_x, MAX_STEP, DEADBAND_PX)
-            tilt_step = step_from_err(ey, h/2, Kp_y, MAX_STEP, DEADBAND_PX)
+            tilt_step = -step_from_err(ey, h/2, Kp_y, MAX_STEP, DEADBAND_PX)
 
             # flip sign if your mount is reversed:
             pan  = clamp(pan  + pan_step,  0.0, 180.0)
@@ -167,6 +170,7 @@ def main():
         if (now - last_send_time) * 1000.0 >= SEND_EVERY_MS:
             msg = f"PT:{p},{t}\n"
             if msg != last_sent:
+                ser.reset_output_buffer()
                 ser.write(msg.encode("utf-8"))
                 last_sent = msg
             last_send_time = now

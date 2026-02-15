@@ -32,6 +32,7 @@ Servo servoPan, servoTilt;
 int panAngle = 90;
 int tiltAngle = 90;
 String cmdLine;
+double timer = 0;
 
 // ================= Camera setup =================
 void camera_setup() {
@@ -64,7 +65,7 @@ void camera_setup() {
 
   config.frame_size   = FRAMESIZE_QQVGA; // 160x120
   config.jpeg_quality = 12;
-  config.fb_count     = 2;
+  config.fb_count     = 5;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -116,6 +117,7 @@ void servo_loop() {
     if (c == '\n') {
       cmdLine.trim();
       handleCommand(cmdLine);
+      Serial.flush();
       cmdLine = "";
     } else if (c != '\r') {
       if (cmdLine.length() < 40) cmdLine += c;
@@ -132,9 +134,9 @@ void camera_loop(int delay_ms) {
     return;
   }
 
-  Serial.println("START_IMAGE");
+  Serial.println("START_IMAGE\n");
   Serial.write(fb->buf, fb->len);
-  Serial.println("END_IMAGE");
+  Serial.println("\nEND_IMAGE");
 
   esp_camera_fb_return(fb);
   delay(delay_ms);
@@ -149,6 +151,9 @@ void setup() {
 }
 
 void loop() {
-  servo_loop();      // always read commands
-  camera_loop(50);   // ~20 fps
+  if(millis() - timer > 50)
+  {
+    camera_loop(1);
+  }
+  servo_loop();
 }
