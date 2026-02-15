@@ -1,7 +1,7 @@
 #include "esp_camera.h"
 #include <ESP32Servo.h>
 
-// ========= Camera pins (your external camera wiring) =========
+// ================= Camera pins (your external camera wiring) =================
 #define PWDN_GPIO_NUM     -1
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM     15
@@ -20,22 +20,40 @@
 #define HREF_GPIO_NUM     7
 #define PCLK_GPIO_NUM     13
 
-// ========= Servo =========
-static const int SERVO_PIN = 2;     // <-- use GPIO2 (not used by camera)
+// ================= Servo =================
+static const int SERVO_PIN = 2;   // signal pin for servo (GPIO2)
 Servo servo;
 int servoAngle = 90;
 
-// Serial baud for streaming
-static const int BAUD = 1500000;
+// ================= Stream settings =================
+static const int BAUD = 1500000;              // must match laptop
+static const int W = 160;
+static const int H = 120;
+static const int FRAME_BYTES = W * H;
 
-// For QQVGA grayscale: 160x120 = 19200 bytes
-static const int FRAME_BYTES = 160 * 120;
+// Non-blocking-ish servo command handler:
+// Reads lines like "ANG:123\n" and updates servoAngle
+void handleAngleCommand() {
+  if (!Serial.available()) return;
+
+  String line = Serial.readStringUntil('\n');  // uses Serial timeout
+  line.trim();
+
+  if (line.startsWith("ANG:")) {
+    int a = line.substring(4).toInt();
+    if (a < 0) a = 0;
+    if (a > 180) a = 180;
+    servoAngle = a;
+    servo.write(servoAngle);
+  }
+}
 
 void setup() {
   Serial.begin(BAUD);
-  delay(300);
+  Serial.setTimeout(2); // ms (keeps readStringUntil from blocking long)
+  delay(200);
 
-  // Servo setup
+  // Servo init
   servo.setPeriodHertz(50);
   servo.attach(SERVO_PIN, 500, 2400);
   servo.write(servoAngle);
@@ -67,7 +85,7 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_GRAYSCALE;
 
-  config.frame_size   = FRAMESIZE_QQVGA;  // 160x120
+  config.frame_size   = FRAMESIZE_QQVGA; // 160x120
   config.jpeg_quality = 12;
   config.fb_count     = 2;
 
@@ -80,26 +98,9 @@ void setup() {
   Serial.println("Starting!");
 }
 
-void handleAngleCommandNonBlocking() {
-  // Read a line if available (ASCII command)
-  if (!Serial.available()) return;
-
-  String line = Serial.readStringUntil('\n');
-  line.trim();
-  if (line.startsWith("ANG:")) {
-    int a = line.substring(4).toInt();
-    if (a < 0) a = 0;
-    if (a > 180) a = 180;
-    servoAngle = a;
-    servo.write(servoAngle);
-    // Optional ack:
-    // Serial.printf("OK:%d\n", servoAngle);
-  }
-}
-
 void loop() {
-  // 1) Check for incoming servo commands (quick, non-blocking)
-  handleAngleCommandNonBlocking();
+  // 1) Handle incoming servo angle commands
+  handleAngleCommand();
 
   // 2) Capture frame
   camera_fb_t *fb = esp_camera_fb_get();
@@ -107,12 +108,6 @@ void loop() {
     Serial.println("failed");
     delay(10);
     return;
-  }
-
-  // Safety: expect grayscale QQVGA length
-  if (fb->len != FRAME_BYTES) {
-    // Still stream it, but your Python expects 19200 bytes.
-    // If this happens often, your frame size/pixel format is mismatched.
   }
 
   // 3) Stream frame
