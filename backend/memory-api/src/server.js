@@ -28,6 +28,14 @@ if (!MEMORY_API_KEY) {
 const app = express();
 app.use(express.json({ limit: '8mb' }));
 
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization');
+  if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+  next();
+});
+
 let mongo = null;
 let collection = null;
 let mongoConnected = false;
@@ -494,6 +502,63 @@ app.post('/v1/asr/stream/abort', auth, async (req, res) => {
   } catch (err) {
     console.error('[memory-api] asr stream abort error', err);
     res.status(500).json({ ok: false, error: 'internal_error' });
+  }
+});
+
+/* ── Personality Endpoints ──────────────────────────────────── */
+
+app.get('/v1/personality/profiles', auth, (_req, res) => {
+  res.json({
+    ok: true,
+    profiles: personalityProfiles.map(p => ({
+      id: p.id,
+      name: p.name,
+      emoji: p.emoji,
+      description: p.description,
+      system_prompt: p.system_prompt,
+      is_default: p.is_default
+    }))
+  });
+});
+
+app.get('/v1/personality/active', auth, (_req, res) => {
+  const profile = getActiveProfile();
+  res.json({ ok: true, profile });
+});
+
+app.put('/v1/personality/active', auth, (req, res) => {
+  const profileId = safeString(req.body?.profile_id);
+  const found = personalityProfiles.find(p => p.id === profileId);
+  if (!found) {
+    res.status(404).json({ ok: false, error: 'profile_not_found' });
+    return;
+  }
+  activeProfileId = profileId;
+  console.log(`[personality] active profile changed to: ${profileId}`);
+  res.json({ ok: true, profile: found });
+});
+
+app.post('/v1/personality/preview', auth, async (req, res) => {
+  try {
+    const profileId = safeString(req.body?.profile_id) || activeProfileId;
+    const userMessage = safeString(req.body?.user_message);
+    if (!userMessage) {
+      res.status(400).json({ ok: false, error: 'missing_user_message' });
+      return;
+    }
+    const profile = personalityProfiles.find(p => p.id === profileId) || getActiveProfile();
+    const out = await generateWithGemini({
+      model: GEMINI_LLM_MODEL,
+      systemPrompt: profile.system_prompt,
+      userMessage,
+      history: [],
+      imageBase64: '',
+      imageMimeType: ''
+    });
+    res.json({ ok: true, text: out.text, profile_id: profile.id, profile_name: profile.name });
+  } catch (err) {
+    console.error('[personality] preview error', err);
+    res.status(500).json({ ok: false, error: 'preview_failed', detail: String(err).slice(0, 400) });
   }
 });
 
