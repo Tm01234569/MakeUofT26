@@ -443,7 +443,7 @@ app.post('/v1/asr/stream/stop', auth, async (req, res) => {
 app.post('/v1/asr/stream/abort', auth, async (req, res) => {
   try {
     const sessionId = safeString(req.query?.session_id);
-    if (sessionId.length() > 0) {
+    if (sessionId.length > 0) {
       asrSessions.delete(sessionId);
     }
     res.status(200).json({ ok: true });
