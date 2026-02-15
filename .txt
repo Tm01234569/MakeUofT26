@@ -1,0 +1,16 @@
+brew install python@3.11
+
+python3.11 --version
+
+python3.11 -m venv .venv
+
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+
+pip install opencv-python mediapipe pyserial numpy requests
+
+//for find the COM PORT !! IMPORTANT make the change in the code 
+ls /dev/cu.*
+
+python serial_cam_face_2servo.py
