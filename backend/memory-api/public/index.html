@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DAZI Personality Suite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Quicksand:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Base ────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blush: #FFB6C1;
+      --rose: #FF6B81;
+      --cream: #FFF5F5;
+      --wine: #8B2252;
+      --gold: #D4A574;
+      --pink-bg: #FFF0F3;
+      --rose-light: #FFD6DD;
+      --shadow-soft: 0 4px 20px rgba(139, 34, 82, 0.08);
+      --shadow-hover: 0 8px 32px rgba(255, 107, 129, 0.22);
+      --shadow-glow: 0 0 20px rgba(255, 107, 129, 0.35), 0 0 40px rgba(255, 107, 129, 0.15);
+      --radius: 16px;
+      --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Quicksand', sans-serif;
+      background: var(--pink-bg);
+      color: #4a2030;
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* ── Background gradient mesh ────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 10% 20%, rgba(255, 182, 193, 0.35) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 80% at 85% 70%, rgba(255, 107, 129, 0.15) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 50% at 50% 10%, rgba(212, 165, 116, 0.12) 0%, transparent 50%),
+        radial-gradient(ellipse 70% 40% at 70% 90%, rgba(139, 34, 82, 0.08) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Subtle noise overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      opacity: 0.025;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Floating Hearts ─────────────────────────────────── */
+    .hearts-container {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .floating-heart {
+      position: absolute;
+      bottom: -40px;
+      will-change: transform;
+      animation: floatUp linear infinite;
+      opacity: 0;
+    }
+
+    .floating-heart::before,
+    .floating-heart::after {
+      content: '';
+      position: absolute;
+      background: var(--blush);
+      border-radius: 50% 50% 0 0;
+    }
+
+    .floating-heart::before {
+      width: var(--size);
+      height: calc(var(--size) * 0.8);
+      left: calc(var(--size) * 0.5);
+      top: 0;
+      transform: rotate(-45deg);
+      transform-origin: 0 100%;
+    }
+
+    .floating-heart::after {
+      width: var(--size);
+      height: calc(var(--size) * 0.8);
+      left: 0;
+      top: calc(var(--size) * -0.3);
+      transform: rotate(45deg);
+      transform-origin: 100% 100%;
+    }
+
+    @keyframes floatUp {
+      0% {
+        opacity: 0;
+        transform: translateY(0) rotate(0deg) scale(0.8);
+      }
+      10% {
+        opacity: var(--heart-opacity, 0.25);
+      }
+      90% {
+        opacity: var(--heart-opacity, 0.25);
+      }
+      100% {
+        opacity: 0;
+        transform: translateY(calc(-100vh - 80px)) rotate(var(--rotate-end, 45deg)) scale(1);
+      }
+    }
+
+    /* ── Main Layout ─────────────────────────────────────── */
+    .app-wrapper {
+      position: relative;
+      z-index: 1;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+
+    /* ── Header ──────────────────────────────────────────── */
+    .header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .header-title {
+      font-family: 'Playfair Display', serif;
+      font-weight: 700;
+      font-size: 2.6rem;
+      color: var(--wine);
+      letter-spacing: 0.5px;
+      line-height: 1.2;
+    }
+
+    .header-title .heart-icon {
+      display: inline-block;
+      color: var(--rose);
+      animation: heartbeat 1.8s ease-in-out infinite;
+    }
+
+    @keyframes heartbeat {
+      0%, 100% { transform: scale(1); }
+      15% { transform: scale(1.15); }
+      30% { transform: scale(1); }
+      45% { transform: scale(1.1); }
+      60% { transform: scale(1); }
+    }
+
+    .header-subtitle {
+      font-family: 'Playfair Display', serif;
+      font-style: italic;
+      font-weight: 400;
+      font-size: 1.1rem;
+      color: var(--rose);
+      margin-top: 6px;
+      opacity: 0.85;
+    }
+
+    /* ── API Key Section ─────────────────────────────────── */
+    .api-key-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 32px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .api-key-label {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--wine);
+      white-space: nowrap;
+    }
+
+    .api-key-input {
+      font-family: 'Quicksand', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 500;
+      padding: 10px 18px;
+      border: 2px solid var(--blush);
+      border-radius: 30px;
+      background: white;
+      color: var(--wine);
+      width: 260px;
+      outline: none;
+      transition: var(--transition);
+    }
+
+    .api-key-input:focus {
+      border-color: var(--rose);
+      box-shadow: 0 0 0 4px rgba(255, 107, 129, 0.12);
+    }
+
+    .api-key-input::placeholder { color: #cba8b0; }
+
+    /* ── Profile Cards Grid ──────────────────────────────── */
+    .profiles-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 18px;
+      margin-bottom: 32px;
+    }
+
+    .profile-card {
+      background: var(--cream);
+      border: 2px solid rgba(255, 182, 193, 0.4);
+      border-radius: var(--radius);
+      padding: 28px 18px 22px;
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Love-letter seal line */
+    .profile-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 10%;
+      right: 10%;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--blush), var(--rose), var(--blush), transparent);
+      opacity: 0.5;
+      transition: opacity var(--transition);
+    }
+
+    .profile-card:hover {
+      transform: translateY(-6px);
+      box-shadow: var(--shadow-hover);
+      border-color: var(--blush);
+    }
+
+    .profile-card:hover::before { opacity: 1; }
+
+    .profile-card.active {
+      border-color: var(--rose);
+      box-shadow: var(--shadow-glow);
+      animation: pulseGlow 2.5s ease-in-out infinite;
+    }
+
+    .profile-card.active::before { opacity: 1; }
+
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 16px rgba(255, 107, 129, 0.25), 0 0 32px rgba(255, 107, 129, 0.1); }
+      50% { box-shadow: 0 0 24px rgba(255, 107, 129, 0.4), 0 0 48px rgba(255, 107, 129, 0.2); }
+    }
+
+    .profile-emoji {
+      font-size: 2.8rem;
+      margin-bottom: 10px;
+      display: block;
+      transition: transform var(--transition);
+    }
+
+    .profile-card:hover .profile-emoji {
+      transform: scale(1.15) rotate(-5deg);
+    }
+
+    .profile-name {
+      font-family: 'Playfair Display', serif;
+      font-weight: 600;
+      font-size: 1.15rem;
+      color: var(--wine);
+      margin-bottom: 4px;
+    }
+
+    .profile-desc {
+      font-size: 0.82rem;
+      font-weight: 400;
+      color: #9e6478;
+      line-height: 1.4;
+    }
+
+    .profile-badge {
+      display: inline-block;
+      margin-top: 10px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--rose);
+      background: rgba(255, 107, 129, 0.1);
+      padding: 4px 12px;
+      border-radius: 20px;
+      opacity: 0;
+      transform: translateY(6px);
+      transition: all var(--transition);
+    }
+
+    .profile-card.active .profile-badge {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Section Cards ───────────────────────────────────── */
+    .section-card {
+      background: white;
+      border-radius: var(--radius);
+      border: 1.5px solid rgba(255, 182, 193, 0.3);
+      box-shadow: var(--shadow-soft);
+      margin-bottom: 28px;
+      overflow: hidden;
+    }
+
+    .section-header {
+      font-family: 'Playfair Display', serif;
+      font-weight: 600;
+      font-size: 1.15rem;
+      color: var(--wine);
+      padding: 18px 24px 14px;
+      border-bottom: 1px solid rgba(255, 182, 193, 0.2);
+      background: linear-gradient(135deg, rgba(255, 240, 243, 0.6), rgba(255, 245, 245, 0.3));
+    }
+
+    /* ── Chat Area ───────────────────────────────────────── */
+    .chat-messages {
+      height: 320px;
+      overflow-y: auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      scroll-behavior: smooth;
+    }
+
+    .chat-messages::-webkit-scrollbar { width: 6px; }
+    .chat-messages::-webkit-scrollbar-track { background: transparent; }
+    .chat-messages::-webkit-scrollbar-thumb {
+      background: var(--blush);
+      border-radius: 3px;
+    }
+
+    .chat-bubble {
+      max-width: 78%;
+      padding: 12px 18px;
+      border-radius: 18px;
+      font-size: 0.92rem;
+      line-height: 1.55;
+      animation: bubbleIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+      word-wrap: break-word;
+    }
+
+    @keyframes bubbleIn {
+      0% { opacity: 0; transform: translateY(10px) scale(0.95); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .chat-bubble.user {
+      align-self: flex-end;
+      background: linear-gradient(135deg, var(--rose), #ff8a9e);
+      color: white;
+      border-bottom-right-radius: 6px;
+    }
+
+    .chat-bubble.assistant {
+      align-self: flex-start;
+      background: var(--cream);
+      color: #4a2030;
+      border: 1px solid rgba(255, 182, 193, 0.25);
+      border-bottom-left-radius: 6px;
+    }
+
+    .chat-bubble.error {
+      align-self: flex-start;
+      background: #fff0f0;
+      color: #b33a3a;
+      border: 1px solid rgba(179, 58, 58, 0.2);
+      border-bottom-left-radius: 6px;
+      font-style: italic;
+    }
+
+    /* Loading dots */
+    .chat-bubble.loading {
+      align-self: flex-start;
+      background: var(--cream);
+      border: 1px solid rgba(255, 182, 193, 0.25);
+      border-bottom-left-radius: 6px;
+      display: flex;
+      gap: 5px;
+      padding: 16px 22px;
+    }
+
+    .loading-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--blush);
+      animation: loadBounce 1.2s ease-in-out infinite;
+    }
+
+    .loading-dot:nth-child(2) { animation-delay: 0.15s; }
+    .loading-dot:nth-child(3) { animation-delay: 0.3s; }
+
+    @keyframes loadBounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-8px); opacity: 1; }
+    }
+
+    /* Chat input bar */
+    .chat-input-bar {
+      display: flex;
+      gap: 10px;
+      padding: 16px 24px 20px;
+      border-top: 1px solid rgba(255, 182, 193, 0.15);
+      background: linear-gradient(180deg, transparent, rgba(255, 240, 243, 0.3));
+    }
+
+    .chat-input {
+      flex: 1;
+      font-family: 'Quicksand', sans-serif;
+      font-size: 0.92rem;
+      font-weight: 500;
+      padding: 12px 20px;
+      border: 2px solid rgba(255, 182, 193, 0.4);
+      border-radius: 30px;
+      background: white;
+      color: #4a2030;
+      outline: none;
+      transition: var(--transition);
+    }
+
+    .chat-input:focus {
+      border-color: var(--rose);
+      box-shadow: 0 0 0 4px rgba(255, 107, 129, 0.1);
+    }
+
+    .chat-input::placeholder { color: #cba8b0; }
+
+    .btn-send {
+      font-family: 'Quicksand', sans-serif;
+      font-weight: 700;
+      font-size: 0.9rem;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 30px;
+      background: linear-gradient(135deg, var(--rose), #ff8a9e);
+      color: white;
+      cursor: pointer;
+      transition: all var(--transition);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-send:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(255, 107, 129, 0.35);
+    }
+
+    .btn-send:active { transform: translateY(0); }
+
+    .btn-send:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* ── System Prompt Area ───────────────────────────────── */
+    .prompt-body {
+      padding: 20px 24px 22px;
+    }
+
+    .prompt-textarea {
+      font-family: 'Quicksand', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 500;
+      width: 100%;
+      min-height: 140px;
+      padding: 16px 18px;
+      border: 2px solid rgba(255, 182, 193, 0.3);
+      border-radius: 12px;
+      background: var(--cream);
+      color: #4a2030;
+      resize: vertical;
+      outline: none;
+      line-height: 1.6;
+      transition: var(--transition);
+    }
+
+    .prompt-textarea:focus {
+      border-color: var(--rose);
+      box-shadow: 0 0 0 4px rgba(255, 107, 129, 0.08);
+    }
+
+    .prompt-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 14px;
+    }
+
+    .btn-save {
+      font-family: 'Quicksand', sans-serif;
+      font-weight: 700;
+      font-size: 0.88rem;
+      padding: 10px 26px;
+      border: 2px solid var(--rose);
+      border-radius: 30px;
+      background: transparent;
+      color: var(--rose);
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-save:hover {
+      background: var(--rose);
+      color: white;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(255, 107, 129, 0.25);
+    }
+
+    .btn-save:active { transform: translateY(0); }
+
+    /* ── Toast Notifications ─────────────────────────────── */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      font-family: 'Quicksand', sans-serif;
+      font-weight: 600;
+      font-size: 0.88rem;
+      padding: 14px 22px;
+      border-radius: 12px;
+      color: white;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+      animation: toastIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), toastOut 0.35s ease-in forwards;
+      animation-delay: 0s, 2.65s;
+      pointer-events: none;
+      min-width: 220px;
+      max-width: 360px;
+    }
+
+    .toast.success {
+      background: linear-gradient(135deg, #56c596, #47b784);
+    }
+
+    .toast.error {
+      background: linear-gradient(135deg, var(--rose), #e85d75);
+    }
+
+    @keyframes toastIn {
+      0% { opacity: 0; transform: translateX(60px) scale(0.9); }
+      100% { opacity: 1; transform: translateX(0) scale(1); }
+    }
+
+    @keyframes toastOut {
+      0% { opacity: 1; transform: translateX(0); }
+      100% { opacity: 0; transform: translateX(60px); }
+    }
+
+    /* ── Loading Skeleton ────────────────────────────────── */
+    .skeleton-card {
+      background: var(--cream);
+      border: 2px solid rgba(255, 182, 193, 0.2);
+      border-radius: var(--radius);
+      padding: 28px 18px 22px;
+      text-align: center;
+    }
+
+    .skeleton-circle {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(110deg, #ffe0e6 30%, #fff0f3 50%, #ffe0e6 70%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      margin: 0 auto 12px;
+    }
+
+    .skeleton-line {
+      height: 14px;
+      border-radius: 7px;
+      background: linear-gradient(110deg, #ffe0e6 30%, #fff0f3 50%, #ffe0e6 70%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      margin: 0 auto 8px;
+    }
+
+    .skeleton-line.w60 { width: 60%; }
+    .skeleton-line.w80 { width: 80%; }
+
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ── Welcome message in chat ─────────────────────────── */
+    .chat-welcome {
+      text-align: center;
+      padding: 40px 20px;
+      color: #c49aaa;
+      font-style: italic;
+      font-size: 0.9rem;
+    }
+
+    .chat-welcome .welcome-heart {
+      font-size: 2rem;
+      display: block;
+      margin-bottom: 10px;
+      animation: heartbeat 1.8s ease-in-out infinite;
+    }
+
+    /* ── Responsive ──────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .header-title { font-size: 1.9rem; }
+      .profiles-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+      .profile-card { padding: 20px 14px 18px; }
+      .profile-emoji { font-size: 2.2rem; }
+      .chat-messages { height: 260px; padding: 16px; }
+      .chat-input-bar { padding: 12px 16px 16px; }
+      .prompt-body { padding: 16px; }
+      .app-wrapper { padding: 20px 14px 40px; }
+    }
+
+    @media (max-width: 400px) {
+      .profiles-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .api-key-input { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Floating hearts background -->
+  <div class="hearts-container" id="heartsContainer"></div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main App -->
+  <div class="app-wrapper">
+
+    <!-- Header -->
+    <header class="header">
+      <h1 class="header-title">
+        <span class="heart-icon">&#9825;</span>
+        DAZI Personality Suite
+        <span class="heart-icon">&#9825;</span>
+      </h1>
+      <p class="header-subtitle">&ldquo;Choose your companion&rsquo;s heart&rdquo;</p>
+    </header>
+
+    <!-- API Key Input -->
+    <div class="api-key-section">
+      <label class="api-key-label" for="apiKeyInput">API Key:</label>
+      <input
+        type="text"
+        id="apiKeyInput"
+        class="api-key-input"
+        placeholder="Enter your API key..."
+        value="demo123"
+      />
+    </div>
+
+    <!-- Profile Cards -->
+    <div class="profiles-grid" id="profilesGrid">
+      <!-- skeleton placeholders rendered by JS, but here as static fallback -->
+    </div>
+
+    <!-- Chat Preview -->
+    <div class="section-card">
+      <div class="section-header">&#128172; Preview Chat</div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-welcome">
+          <span class="welcome-heart">&#128140;</span>
+          Select a personality and start chatting!
+        </div>
+      </div>
+      <div class="chat-input-bar">
+        <input
+          type="text"
+          id="chatInput"
+          class="chat-input"
+          placeholder="Type a message..."
+        />
+        <button class="btn-send" id="btnSend">&#9825; Send</button>
+      </div>
+    </div>
+
+    <!-- System Prompt Editor -->
+    <div class="section-card">
+      <div class="section-header">&#128221; System Prompt</div>
+      <div class="prompt-body">
+        <textarea
+          id="promptTextarea"
+          class="prompt-textarea"
+          placeholder="Select a personality to view its system prompt..."
+        ></textarea>
+        <div class="prompt-actions">
+          <button class="btn-save" id="btnSave">&#128190; Save</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    /* ============================================================
+       DAZI Personality Suite  —  Valentine's Control Panel
+       ============================================================ */
+
+    const API_BASE = '';
+
+    // ── State ─────────────────────────────────────────────
+    let profiles = [];
+    let activeProfileId = null;
+
+    // ── DOM refs ──────────────────────────────────────────
+    const apiKeyInput     = document.getElementById('apiKeyInput');
+    const profilesGrid    = document.getElementById('profilesGrid');
+    const chatMessages    = document.getElementById('chatMessages');
+    const chatInput       = document.getElementById('chatInput');
+    const btnSend         = document.getElementById('btnSend');
+    const promptTextarea  = document.getElementById('promptTextarea');
+    const btnSave         = document.getElementById('btnSave');
+    const toastContainer  = document.getElementById('toastContainer');
+    const heartsContainer = document.getElementById('heartsContainer');
+
+    // ── Helpers ───────────────────────────────────────────
+    function getApiKey() {
+      return apiKeyInput.value.trim() || 'demo123';
+    }
+
+    function apiHeaders(extra) {
+      var h = {
+        'Content-Type': 'application/json',
+        'x-api-key': getApiKey()
+      };
+      if (extra) { Object.assign(h, extra); }
+      return h;
+    }
+
+    function escapeHtml(str) {
+      var d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    // ── Toast ─────────────────────────────────────────────
+    function showToast(message, type) {
+      type = type || 'success';
+      var toast = document.createElement('div');
+      toast.className = 'toast ' + type;
+      toast.textContent = message;
+      toastContainer.appendChild(toast);
+      setTimeout(function() {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 3200);
+    }
+
+    // ── Floating Hearts ───────────────────────────────────
+    function createFloatingHearts() {
+      var count = 15;
+      for (var i = 0; i < count; i++) {
+        var heart = document.createElement('div');
+        heart.className = 'floating-heart';
+        var size = 8 + Math.random() * 14;
+        var left = Math.random() * 100;
+        var duration = 12 + Math.random() * 18;
+        var delay = Math.random() * duration;
+        var rotateEnd = -30 + Math.random() * 120;
+        var opacity = 0.12 + Math.random() * 0.2;
+
+        heart.style.setProperty('--size', size + 'px');
+        heart.style.setProperty('--rotate-end', rotateEnd + 'deg');
+        heart.style.setProperty('--heart-opacity', String(opacity));
+        heart.style.left = left + '%';
+        heart.style.animationDuration = duration + 's';
+        heart.style.animationDelay = '-' + delay + 's';
+
+        heartsContainer.appendChild(heart);
+      }
+    }
+
+    // ── Emoji map (fallback if API doesn't provide one) ──
+    var emojiMap = {
+      'sweet_valentine': '\uD83D\uDC96',
+      'sassy_bestie': '\uD83D\uDC85',
+      'wise_sensei': '\uD83C\uDF38',
+      'roast_master': '\uD83D\uDD25'
+    };
+
+    var defaultEmojis = ['\uD83D\uDC96', '\uD83D\uDC85', '\uD83C\uDF38', '\uD83D\uDD25', '\uD83D\uDC9C', '\uD83C\uDF39', '\uD83D\uDC8B', '\u2728'];
+
+    function getEmoji(profile, index) {
+      if (profile.emoji) return profile.emoji;
+      if (profile.id && emojiMap[profile.id]) return emojiMap[profile.id];
+      return defaultEmojis[index % defaultEmojis.length];
+    }
+
+    // ── Render Profiles ───────────────────────────────────
+    function renderSkeletons() {
+      profilesGrid.textContent = '';
+      for (var i = 0; i < 4; i++) {
+        var skel = document.createElement('div');
+        skel.className = 'skeleton-card';
+
+        var circle = document.createElement('div');
+        circle.className = 'skeleton-circle';
+        skel.appendChild(circle);
+
+        var line1 = document.createElement('div');
+        line1.className = 'skeleton-line w60';
+        skel.appendChild(line1);
+
+        var line2 = document.createElement('div');
+        line2.className = 'skeleton-line w80';
+        skel.appendChild(line2);
+
+        profilesGrid.appendChild(skel);
+      }
+    }
+
+    function renderProfiles() {
+      profilesGrid.textContent = '';
+
+      if (profiles.length === 0) {
+        var msg = document.createElement('p');
+        msg.style.cssText = 'grid-column:1/-1;text-align:center;color:#c49aaa;font-style:italic;';
+        msg.textContent = 'No profiles found. Check your API key.';
+        profilesGrid.appendChild(msg);
+        return;
+      }
+
+      profiles.forEach(function(profile, i) {
+        var card = document.createElement('div');
+        card.className = 'profile-card' + (profile.id === activeProfileId ? ' active' : '');
+
+        var emoji = document.createElement('span');
+        emoji.className = 'profile-emoji';
+        emoji.textContent = getEmoji(profile, i);
+        card.appendChild(emoji);
+
+        var name = document.createElement('div');
+        name.className = 'profile-name';
+        name.textContent = profile.name || profile.id;
+        card.appendChild(name);
+
+        var desc = document.createElement('div');
+        desc.className = 'profile-desc';
+        desc.textContent = profile.description || '';
+        card.appendChild(desc);
+
+        var badge = document.createElement('span');
+        badge.className = 'profile-badge';
+        badge.textContent = 'Active';
+        card.appendChild(badge);
+
+        card.addEventListener('click', (function(pid) {
+          return function() { switchProfile(pid); };
+        })(profile.id));
+
+        profilesGrid.appendChild(card);
+      });
+    }
+
+    // ── Fetch Profiles ────────────────────────────────────
+    async function fetchProfiles() {
+      renderSkeletons();
+      try {
+        var res = await fetch(API_BASE + '/v1/personality/profiles', {
+          headers: apiHeaders()
+        });
+        if (!res.ok) throw new Error('Failed to load profiles');
+        var data = await res.json();
+        profiles = Array.isArray(data) ? data : (data.profiles || []);
+        renderProfiles();
+      } catch (err) {
+        console.error(err);
+        showToast('Could not load profiles', 'error');
+        profilesGrid.textContent = '';
+        var msg = document.createElement('p');
+        msg.style.cssText = 'grid-column:1/-1;text-align:center;color:#c49aaa;font-style:italic;';
+        msg.textContent = 'Failed to load profiles.';
+        profilesGrid.appendChild(msg);
+      }
+    }
+
+    // ── Fetch Active Profile ──────────────────────────────
+    async function fetchActive() {
+      try {
+        var res = await fetch(API_BASE + '/v1/personality/active', {
+          headers: apiHeaders()
+        });
+        if (!res.ok) throw new Error('Failed to load active profile');
+        var data = await res.json();
+        activeProfileId = data.profile_id || data.id || null;
+        promptTextarea.value = data.system_prompt || '';
+        renderProfiles();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // ── Switch Profile ────────────────────────────────────
+    async function switchProfile(profileId) {
+      if (profileId === activeProfileId) return;
+
+      try {
+        var res = await fetch(API_BASE + '/v1/personality/active', {
+          method: 'PUT',
+          headers: apiHeaders(),
+          body: JSON.stringify({ profile_id: profileId })
+        });
+        if (!res.ok) throw new Error('Failed to switch profile');
+        var data = await res.json();
+
+        activeProfileId = profileId;
+        promptTextarea.value = data.system_prompt || '';
+
+        renderProfiles();
+
+        var profile = profiles.find(function(p) { return p.id === profileId; });
+        var pname = profile ? (profile.name || profile.id) : profileId;
+        showToast('Switched to ' + pname + '!', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Could not switch profile', 'error');
+      }
+    }
+
+    // ── Chat ──────────────────────────────────────────────
+    function removeWelcome() {
+      var welcome = chatMessages.querySelector('.chat-welcome');
+      if (welcome) welcome.parentNode.removeChild(welcome);
+    }
+
+    function addBubble(text, type) {
+      removeWelcome();
+      var bubble = document.createElement('div');
+      bubble.className = 'chat-bubble ' + type;
+      bubble.textContent = text;
+      chatMessages.appendChild(bubble);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return bubble;
+    }
+
+    function addLoading() {
+      removeWelcome();
+      var bubble = document.createElement('div');
+      bubble.className = 'chat-bubble loading';
+      bubble.id = 'loadingBubble';
+
+      for (var i = 0; i < 3; i++) {
+        var dot = document.createElement('div');
+        dot.className = 'loading-dot';
+        bubble.appendChild(dot);
+      }
+
+      chatMessages.appendChild(bubble);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function removeLoading() {
+      var loader = document.getElementById('loadingBubble');
+      if (loader) loader.parentNode.removeChild(loader);
+    }
+
+    async function sendMessage() {
+      var text = chatInput.value.trim();
+      if (!text) return;
+
+      chatInput.value = '';
+      addBubble(text, 'user');
+      addLoading();
+      btnSend.disabled = true;
+
+      try {
+        var res = await fetch(API_BASE + '/v1/personality/preview', {
+          method: 'POST',
+          headers: apiHeaders(),
+          body: JSON.stringify({ user_message: text })
+        });
+
+        removeLoading();
+
+        if (!res.ok) throw new Error('Preview failed');
+
+        var data = await res.json();
+        var reply = data.response || data.message || data.reply || JSON.stringify(data);
+        addBubble(reply, 'assistant');
+      } catch (err) {
+        removeLoading();
+        addBubble('Something went wrong. Please try again.', 'error');
+        console.error(err);
+      } finally {
+        btnSend.disabled = false;
+        chatInput.focus();
+      }
+    }
+
+    // ── Event Listeners ───────────────────────────────────
+    btnSend.addEventListener('click', sendMessage);
+
+    chatInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    btnSave.addEventListener('click', function() {
+      showToast('Prompt saved!', 'success');
+    });
+
+    // Re-fetch when API key changes (debounced)
+    var apiKeyTimer = null;
+    apiKeyInput.addEventListener('input', function() {
+      clearTimeout(apiKeyTimer);
+      apiKeyTimer = setTimeout(function() {
+        fetchProfiles();
+        fetchActive();
+      }, 600);
+    });
+
+    // ── Init ──────────────────────────────────────────────
+    createFloatingHearts();
+    fetchProfiles();
+    fetchActive();
+  </script>
+</body>
+</html>

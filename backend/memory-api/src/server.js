@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import { MongoClient } from 'mongodb';
 import { randomUUID } from 'crypto';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 const {
   PORT = '8787',
@@ -25,8 +27,11 @@ if (!MEMORY_API_KEY) {
   process.exit(1);
 }
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 const app = express();
 app.use(express.json({ limit: '8mb' }));
+app.use(express.static(join(__dirname, '..', 'public')));
 
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
