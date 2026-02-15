@@ -1,7 +1,8 @@
 #include "esp_camera.h"
 #include <ESP32Servo.h>
 
-// ================= Camera pins (your external camera wiring) =================
+// ================= Camera pins (YOUR external camera wiring) =================
+// Keep exactly as you had it.
 #define PWDN_GPIO_NUM     -1
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM     15
@@ -20,44 +21,21 @@
 #define HREF_GPIO_NUM     7
 #define PCLK_GPIO_NUM     13
 
-// ================= Servo =================
-static const int SERVO_PIN = 2;   // signal pin for servo (GPIO2)
-Servo servo;
-int servoAngle = 90;
-
-// ================= Stream settings =================
-static const int BAUD = 1500000;              // must match laptop
+// ================= Settings =================
+static const int BAUD = 1500000;
 static const int W = 160;
 static const int H = 120;
-static const int FRAME_BYTES = W * H;
 
-// Non-blocking-ish servo command handler:
-// Reads lines like "ANG:123\n" and updates servoAngle
-void handleAngleCommand() {
-  if (!Serial.available()) return;
+// Servo signal pin (use the one that actually works on your board)
+static const int SERVO_PIN = 2;   // <- change to 14 only if your wiring/pin works
 
-  String line = Serial.readStringUntil('\n');  // uses Serial timeout
-  line.trim();
+// ================= Servo =================
+Servo servo;
+int servoAngle = 90;
+String cmdLine;
 
-  if (line.startsWith("ANG:")) {
-    int a = line.substring(4).toInt();
-    if (a < 0) a = 0;
-    if (a > 180) a = 180;
-    servoAngle = a;
-    servo.write(servoAngle);
-  }
-}
-
-void setup() {
-  Serial.begin(BAUD);
-  Serial.setTimeout(2); // ms (keeps readStringUntil from blocking long)
-  delay(200);
-
-  // Servo init
-  servo.setPeriodHertz(50);
-  servo.attach(SERVO_PIN, 500, 2400);
-  servo.write(servoAngle);
-
+// ================= Camera setup =================
+void camera_setup() {
   Serial.println("Initializing camera...");
 
   camera_config_t config;
@@ -95,27 +73,78 @@ void setup() {
     while (true) delay(1000);
   }
 
-  Serial.println("Starting!");
+  Serial.println("Camera ready!");
 }
 
-void loop() {
-  // 1) Handle incoming servo angle commands
-  handleAngleCommand();
+// ================= Servo setup =================
+void servo_setup() {
+  servo.setPeriodHertz(50);
+  servo.attach(SERVO_PIN, 500, 2500);
+  servo.write(servoAngle);
+  Serial.println("Servo ready!");
+}
 
-  // 2) Capture frame
+// ================= Parse ANG:### commands =================
+void servo_loop() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+
+    if (c == '\n') {
+      cmdLine.trim();
+
+      if (cmdLine.startsWith("ANG:")) {
+        int a = cmdLine.substring(4).toInt();
+        if (a < 0) a = 0;
+        if (a > 180) a = 180;
+        servoAngle = a;
+        servo.write(servoAngle);
+
+        // Optional debug (comment out if you want max speed)
+        // Serial.print("OK ");
+        // Serial.println(servoAngle);
+      }
+
+      cmdLine = "";
+    }
+    else if (c != '\r') {
+      // Keep the buffer short so random bytes never break it
+      if (cmdLine.length() < 32) cmdLine += c;
+      else cmdLine = "";
+    }
+  }
+}
+
+// ================= Stream camera frames =================
+void camera_loop(int delay_ms) {
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
-    Serial.println("failed");
     delay(10);
     return;
   }
 
-  // 3) Stream frame
+  // Markers + raw bytes
   Serial.println("START_IMAGE");
   Serial.write(fb->buf, fb->len);
   Serial.println("END_IMAGE");
 
   esp_camera_fb_return(fb);
+  delay(delay_ms);
+}
 
-  delay(50); // ~20 fps
+void setup() {
+  Serial.begin(BAUD);
+  delay(200);
+
+  servo_setup();
+  camera_setup();
+
+  Serial.println("Starting stream...");
+}
+
+void loop() {
+  // Keep servo responsive
+  servo_loop();
+
+  // Stream frames (~20 fps)
+  camera_loop(50);
 }
