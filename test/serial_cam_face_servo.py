@@ -10,7 +10,7 @@ from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
 
 # ================= CONFIG =================
-SERIAL_PORT = "/dev/cu.SLAB_USBtoUART"  # <-- CHANGE to your Mac ESP32 port
+SERIAL_PORT = "COM5"     # <-- change this
 BAUD = 1500000
 
 W, H = 160, 120
@@ -80,36 +80,45 @@ def clamp(v, lo, hi):
 
 
 def read_frame_exact(ser: serial.Serial):
-    # Sync to START_IMAGE marker
+    # Find START_IMAGE
+    start_deadline = time.time() + 2.0
     while True:
         line = ser.readline()
         if b"START_IMAGE" in line:
             break
+        if time.time() > start_deadline:
+            ser.reset_input_buffer()
+            return None
 
-    # Read exact raw frame bytes (19200 for 160x120)
     buf = ser.read(FRAME_BYTES)
     if len(buf) != FRAME_BYTES:
+        ser.reset_input_buffer()
         return None
 
-    # Consume until END_IMAGE marker
+    # Find END_IMAGE
+    end_deadline = time.time() + 2.0
     while True:
         line = ser.readline()
         if b"END_IMAGE" in line:
             break
+        if time.time() > end_deadline:
+            ser.reset_input_buffer()
+            return None
 
-    frame_gray = np.frombuffer(buf, dtype=np.uint8).reshape((H, W))
-    return frame_gray
+    return np.frombuffer(buf, dtype=np.uint8).reshape((H, W))
 
 
 def main():
     ser = serial.Serial(SERIAL_PORT, BAUD, timeout=1)
     time.sleep(2)
     ser.reset_input_buffer()
+    time.sleep(0.2)
+    ser.reset_input_buffer()
     print(f"[SERIAL] Connected: {SERIAL_PORT} @ {BAUD}")
 
     tracker = FaceTrackerTasks(smooth_alpha=0.25)
 
-    # ===== Control tuning for 160x120 =====
+    # Control tuning for 160x120
     pan = 90.0
     Kp = 22.0
     max_step = 3.0
@@ -129,7 +138,6 @@ def main():
 
         res = tracker.update(frame)
 
-        # draw center crosshair
         cv2.drawMarker(frame, (cx0, cy0), (255, 255, 255),
                        markerType=cv2.MARKER_CROSS, markerSize=12, thickness=2)
 
@@ -140,7 +148,7 @@ def main():
             cv2.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
             cv2.circle(frame, (cxs, cys), 4, (0, 0, 255), -1)
 
-            ex = cxs - cx0  # + means face right of center
+            ex = cxs - cx0
             if abs(ex) > deadband_px:
                 nx = clamp(ex / (w / 2), -1.0, 1.0)
                 step = clamp(Kp * nx, -max_step, max_step)
