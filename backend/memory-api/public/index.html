@@ -686,11 +686,10 @@
 
     <!-- Chat Preview -->
     <div class="section-card">
-      <div class="section-header">&#128172; Preview Chat</div>
+      <div class="section-header">Preview Chat</div>
       <div class="chat-messages" id="chatMessages">
         <div class="chat-welcome">
-          <span class="welcome-heart">&#128140;</span>
-          Select a personality and start chatting!
+          Select a personality and start chatting.
         </div>
       </div>
       <div class="chat-input-bar">
@@ -706,7 +705,7 @@
 
     <!-- System Prompt Editor -->
     <div class="section-card">
-      <div class="section-header">&#128221; System Prompt</div>
+      <div class="section-header">System Prompt</div>
       <div class="prompt-body">
         <textarea
           id="promptTextarea"
@@ -714,7 +713,7 @@
           placeholder="Select a personality to view its system prompt..."
         ></textarea>
         <div class="prompt-actions">
-          <button class="btn-save" id="btnSave">&#128190; Save</button>
+          <button class="btn-save" id="btnSave">Save</button>
         </div>
       </div>
     </div>
@@ -852,11 +851,6 @@
       profiles.forEach(function(profile, i) {
         var card = document.createElement('div');
         card.className = 'profile-card' + (profile.id === activeProfileId ? ' active' : '');
-
-        var emoji = document.createElement('span');
-        emoji.className = 'profile-emoji';
-        emoji.textContent = getEmoji(profile, i);
-        card.appendChild(emoji);
 
         var name = document.createElement('div');
         name.className = 'profile-name';
