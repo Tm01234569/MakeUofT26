@@ -1,7 +1,7 @@
 #include <ESP32Servo.h>
 
 Servo servo;
-const int SERVO_PIN = 18;  // signal pin
+const int SERVO_PIN = 2;  // signal pin
 int angle = 90;
 
 void servo_setup() {
@@ -24,6 +24,5 @@ void servo_loop() {
     } else {
       Serial.println("Send a number 0-180");
     }
-    while (Serial.available()) Serial.read();
   }
 }

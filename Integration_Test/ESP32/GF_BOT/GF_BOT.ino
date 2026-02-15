@@ -1,6 +1,4 @@
 #include <ESP32Servo.h>
-#include "camera.c"
-#include "face_track.c"
 
 void setup() {
   // put your setup code here, to run once:
@@ -11,7 +9,6 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  
   servo_loop();
   camera_loop(50);
 }
