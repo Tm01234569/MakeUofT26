@@ -565,7 +565,7 @@ app.post('/v1/personality/preview', auth, async (req, res) => {
 app.post('/v1/llm/chat', auth, async (req, res) => {
   try {
     const model = safeString(req.body?.model, GEMINI_LLM_MODEL);
-    const systemPrompt = safeString(req.body?.system_prompt);
+    const clientPrompt = safeString(req.body?.system_prompt);
     const userMessage = safeString(req.body?.user_message);
     const history = Array.isArray(req.body?.history) ? req.body.history : [];
     const imageBase64 = safeString(req.body?.image_base64);
@@ -576,6 +576,10 @@ app.post('/v1/llm/chat', auth, async (req, res) => {
       return;
     }
 
+    // Personality injection: active profile overrides client prompt
+    const profile = getActiveProfile();
+    const systemPrompt = profile.system_prompt || clientPrompt;
+
     const out = await generateWithGemini({
       model,
       systemPrompt,
@@ -585,7 +589,13 @@ app.post('/v1/llm/chat', auth, async (req, res) => {
       imageMimeType
     });
 
-    res.status(200).json({ ok: true, text: out.text, model: out.model });
+    res.status(200).json({
+      ok: true,
+      text: out.text,
+      model: out.model,
+      profile_id: profile.id,
+      profile_name: profile.name
+    });
   } catch (err) {
     console.error('[memory-api] llm error', err);
     res.status(500).json({ ok: false, error: 'llm_failed', detail: String(err).slice(0, 400) });
