@@ -64,12 +64,12 @@ void camera_loop(int final_delay) {
     Serial.println("failed");
   } else {
     // Send start marker (optional, helps receiver sync)
-    Serial.println("\nSTART_IMAGE");
+    Serial.println("START_IMAGE");
 
     // Write raw bytes to Serial
     Serial.write(fb->buf, fb->len);
 
-    Serial.println("\nEND_IMAGE");
+    Serial.println("END_IMAGE");
 
     esp_camera_fb_return(fb);
   }
